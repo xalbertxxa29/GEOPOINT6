@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formulario</title>
+    <link rel="stylesheet" href="formulario.css">
+</head>
+<body>
+    <!-- Header con menú hamburguesa -->
+    <header>
+        <div class="header-content">
+            <button id="menu-btn" class="menu-btn">☰</button>
+            <h1>Formulario</h1>
+        </div>
+        <p id="fecha"></p>
+    </header>
+
+<!-- Menú lateral -->
+<nav id="side-menu" class="side-menu">
+    <div class="user-details">
+        <p id="user-name"></p>
+        <p id="user-email"></p>
+    </div>
+    <ul>
+        <li><a href="#">Mis Tareas</a></li>
+        <li><a href="#">Tareas Rechazadas</a></li>
+        <li><a href="#">Mapa de Tareas</a></li>
+        <li><a href="#">Historial</a></li>
+        <li><a href="#">Dashboard</a></li>
+    </ul>
+    <hr>
+    <ul>
+        <li><a href="#">Cambiar de Equipo</a></li>
+        <li><a href="#">Ajustes</a></li>
+    </ul>
+    <hr>
+    <button id="logout-btn" class="logout-btn">Cerrar Sesión</button>
+</nav>
+
+    <!-- Contenido Principal -->
+    <main>
+        <button id="emergency-btn" class="emergency-btn">Recargar Datos</button>
+        <h2>Formulario Seleccionado</h2>
+        <p>Completa la información del formulario:</p>
+        
+        <!-- Contenedor del formulario -->
+        <div class="form-container">
+            <div class="form-section">
+                <h3>Datos del Cliente</h3>
+                <div class="form-group">
+                    <label for="buscarCliente">Buscar Cliente</label>
+                    <select id="buscarCliente" class="dropdown">
+                        <option value="">Seleccionar Cliente</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="buscarUnidad">Unidad</label>
+                    <select id="buscarUnidad" class="dropdown">
+                        <option value="">Seleccionar Unidad</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="dniRuc">DNI o RUC</label>
+                    <input type="text" id="dniRuc" placeholder="DNI o RUC" disabled>
+                </div>
+                <div class="form-group">
+                    <label for="departamento">Departamento</label>
+                    <input type="text" id="departamento" placeholder="Departamento" disabled>
+                </div>
+                <div class="form-group">
+                    <label for="distrito">Distrito</label>
+                    <input type="text" id="distrito" placeholder="Distrito" disabled>
+                </div>
+                <div class="form-group">
+                    <label for="direccion">Dirección</label>
+                    <input type="text" id="direccion" placeholder="Dirección" disabled>
+                </div>
+                <div class="form-group">
+                    <label for="latitud">Latitud</label>
+                    <input type="text" id="latitud" placeholder="Latitud" disabled>
+                </div>
+                <div class="form-group">
+                    <label for="longitud">Longitud</label>
+                    <input type="text" id="longitud" placeholder="Longitud" disabled>
+                </div>
+                <div class="form-group">
+                    <label for="tipoTarea">Tipo de Tarea</label>
+                    <input type="text" id="tipoTarea" placeholder="Tipo de Tarea" disabled>
+                </div>
+                <div class="form-group">
+                    <label for="ubicaciones-mapa">Mapa</label>
+                    <div id="ubicaciones-mapa" style="width: 100%; height: 300px; border: 1px solid #ccc; border-radius: 8px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-buttons">
+            <button id="cancelar" class="cancel">Cancelar</button>
+            <button id="enviar" class="submit">Enviar</button>
+        </div>
+    </main>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-storage-compat.js"></script>
+  
+
+    <!-- Configuración de Firebase -->
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyA5-v9DhFUgl8tuBFDw50y8x0t0jyS4Qak",
+            authDomain: "geopint-dea12.firebaseapp.com",
+            projectId: "geopint-dea12",
+            storageBucket: "geopint-dea12.firebasestorage.app",
+            messagingSenderId: "275082094487",
+            appId: "1:275082094487:web:6db788f8d8893e58d586d2"
+            };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+             const db = firebase.firestore();
+             const storage = firebase.storage()
+            const auth = firebase.auth();
+        }
+    </script>
+
+    <script src="formulario.js"></script>
+    <!-- Google Maps API -->
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDlOoCAxAvWK5kpBkmnefd5dC62ns8v1pU&callback=initMap"></script>
+</body>
+</html>
