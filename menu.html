@@ -2,15 +2,22 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Menú</title>
-    <link rel="stylesheet" href="menu.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="Mis Tareas - LiderControl">
+    <meta name="theme-color" content="#00d4ff">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    
+    <title>Mis Tareas | LiderControl</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="neon-styles.css">
+    <link rel="stylesheet" href="menu-new.css">
 </head>
 <body>
     <!-- Header con menú hamburguesa -->
     <header>
         <div class="header-content">
-            <button id="menu-btn" class="menu-btn">☰</button>
+            <button id="menu-btn" class="menu-btn" aria-label="Abrir menú">☰</button>
             <h1>Mis Tareas</h1>
         </div>
         <p id="fecha"></p>
@@ -23,7 +30,7 @@
             <p id="user-email"></p>
         </div>
         <ul>
-            <li><a href="#">Mis Tareas</a></li>
+            <li><a href="menu.html" class="active">Mis Tareas</a></li>
             <li><a href="#">Tareas Rechazadas</a></li>
             <li><a href="#">Mapa de Tareas</a></li>
             <li><a href="#">Historial</a></li>
@@ -45,27 +52,33 @@
             <button class="tab-btn" data-tab="iniciados">Iniciados</button>
             <button class="tab-btn" data-tab="completados">Completados</button>
         </div>
+
         <div id="pendientes" class="tab-content active">
-            <h2>Pendientes</h2>
+            <h2>Tareas Pendientes</h2>
             <p>A continuación, se muestra tu ubicación actual en el mapa:</p>
-            <div id="map" style="width: 100%; height: 300px; border: 1px solid #ccc; border-radius: 8px;"></div>
+            <div id="map" style="width: 100%; height: 300px; border: 2px solid #00d4ff; border-radius: 8px; background: rgba(10, 14, 39, 0.6);"></div>
         </div>
-        <div id="iniciados" class="tab-content active">
+
+        <div id="iniciados" class="tab-content">
             <h2>Tareas Iniciadas</h2>
             <p>Estas son las tareas que has iniciado:</p>
-            <!-- Aquí se insertarán las tarjetas dinámicamente -->
-        </div>
-        <div id="completados" class="tab-content">
-            <h2>Tareas Completadas</h2>
-            <div id="completados-container">
+            <div id="iniciados-container" class="tareas-container">
                 <!-- Aquí se insertarán las tarjetas dinámicamente -->
             </div>
         </div>
-            <!-- FAB fuera del contenido principal -->
+
+        <div id="completados" class="tab-content">
+            <h2>Tareas Completadas</h2>
+            <div id="completados-container" class="tareas-container">
+                <!-- Aquí se insertarán las tarjetas dinámicamente -->
+            </div>
+        </div>
+
+        <!-- FAB (Floating Action Button) -->
         <div class="fab-container">
-                <button class="fab main-fab" id="main-fab">⋮</button>
+            <button class="fab main-fab" id="main-fab" title="Agregar tarea">⊕</button>
             <div class="fab-options" id="fab-options">
-                <button class="fab option-fab" id="add-fab">+</button>
+                <button class="fab option-fab" id="add-fab" title="Nueva tarea">+</button>
             </div>
         </div>
 
@@ -73,14 +86,30 @@
         <div id="modal" class="modal">
             <div class="modal-content">
                 <span class="close-btn" id="close-modal">&times;</span>
-                <h1>Formulario</h1>
-                <p>Por favor, selecciona un formulario para comenzar la tarea.</p>
+                <h2>Selecciona un Formulario</h2>
+                <p>Elige el tipo de tarea a realizar:</p>
                 <div class="modal-options">
-                    <button class="modal-option" data-tipo="Unidades Armadas">UNIDADES ARMADAS</button>
-                    <button class="modal-option" data-tipo="Encuesta de Satisfacción">ENCUESTA DE SATISFACCIÓN</button>
-                    <button class="modal-option" data-tipo="Ronda de la Unidad">RONDA DE LA UNIDAD</button>
-                    <button class="modal-option" data-tipo="Formulario Dinámico">RONDA DE LA UNIDAD (FORMULARIO DINÁMICO)</button>
-                    <button class="modal-option" data-tipo="Resguardos">RESGUARDOS</button>
+                    <button class="modal-option" data-tipo="Unidades Armadas">
+                        <span class="option-icon">🚁</span>
+                        <span>UNIDADES ARMADAS</span>
+                    </button>
+                    <button class="modal-option" data-tipo="Encuesta de Satisfacción">
+                        <span class="option-icon">📊</span>
+                        <span>ENCUESTA</span>
+                    </button>
+                    <button class="modal-option" data-tipo="Ronda de la Unidad">
+                        <span class="option-icon">🔍</span>
+                        <span>RONDA</span>
+                    </button>
+                    <button class="modal-option" data-tipo="Formulario Dinámico">
+                        <span class="option-icon">📝</span>
+                        <span>DINÁMICO</span>
+                    </button>
+                    <button class="modal-option" data-tipo="Resguardos">
+                        <span class="option-icon">📦</span>
+                        <span>RESGUARDOS</span>
+                    </button>
+                </div>
             </div>
         </div>
     </main>
@@ -91,27 +120,17 @@
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-storage-compat.js"></script>
 
-    <!-- Configuración de Firebase -->
-    <script>
-        const firebaseConfig = {
-            apiKey: "AIzaSyA5-v9DhFUgl8tuBFDw50y8x0t0jyS4Qak",
-            authDomain: "geopint-dea12.firebaseapp.com",
-            projectId: "geopint-dea12",
-            storageBucket: "geopint-dea12.firebasestorage.app",
-            messagingSenderId: "275082094487",
-            appId: "1:275082094487:web:6db788f8d8893e58d586d2"
-            };
+    <!-- Sistemas Globales -->
+    <script src="firebase-config.js"></script>
+    <script src="notification-system.js"></script>
+    <script src="loader-system.js"></script>
+    <script src="helpers.js"></script>
 
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
-    </script>
+    <!-- Google Maps API -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBIJVQyZz32eAvWIpmN6tOy_CGbtfSjBJo&loading=async"></script>
 
-    <!-- Script del Menú -->
-    <script src="menu.js"></script>
-    <!-- Cargar Google Maps -->
-    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDlOoCAxAvWK5kpBkmnefd5dC62ns8v1pU&callback=initMap"></script>
 
+    <script src="menu-new.js"></script>
 </body>
 </html>
 
