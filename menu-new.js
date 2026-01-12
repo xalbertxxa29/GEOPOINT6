@@ -315,22 +315,33 @@ function initMap() {
   `;
   mapContainer.parentElement.style.position = 'relative';
   mapContainer.parentElement.insertBefore(gpsOverlay, mapContainer);
+  
+  // Aplicar efecto de zoom desde el espacio al contenedor del mapa
+  mapContainer.style.animation = 'spaceZoomEffect 3s ease-out forwards';
 
   // Ubicación por defecto (Lima)
   const defaultLocation = { lat: -12.0464, lng: -77.0428 };
 
-  // Crear mapa
+  // Crear mapa con efecto Google Earth (zoom bajo inicial)
   const map = new google.maps.Map(mapContainer, {
-    zoom: 15,
+    zoom: 3, // Comienza zoom bajo (como viendo desde el espacio)
     center: defaultLocation,
     mapTypeControl: false,
     fullscreenControl: true,
     streetViewControl: false,
     styles: [
-      { elementType: 'geometry', stylers: [{ color: '#050812' }] },
+      { elementType: 'geometry', stylers: [{ color: '#0a0e1a' }] },
+      { elementType: 'geometry.stroke', stylers: [{ color: '#0a0e1a' }] },
+      { elementType: 'labels.text.stroke', stylers: [{ color: '#0a0e1a' }] },
       { elementType: 'labels.text.fill', stylers: [{ color: '#00d4ff' }] },
-      { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1a1f3e' }] },
-      { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0a1929' }] }
+      { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#00ff64' }] }, // Verde NEON
+      { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#00ff64' }] },
+      { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#00ff88' }] }, // Verde NEON más claro
+      { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#00ff88', weight: 1 }] },
+      { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0d1b2a' }] },
+      { featureType: 'water', elementType: 'geometry.stroke', stylers: [{ color: '#00d4ff' }] },
+      { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+      { featureType: 'poi', stylers: [{ visibility: 'off' }] }
     ]
   });
 
@@ -360,17 +371,29 @@ function initMap() {
           lng: position.coords.longitude
         };
 
+        // Efecto de zoom suave desde el espacio al ubicarse
+        if (map) {
+          // Animación de zoom suave: zoom in desde 3 a 15
+          const zoomAnimation = setInterval(() => {
+            const currentZoom = map.getZoom();
+            if (currentZoom < 15) {
+              map.setZoom(currentZoom + 1);
+            } else {
+              clearInterval(zoomAnimation);
+              // Actualizar marcador después de terminar el zoom
+              new google.maps.Marker({
+                position: userLocation,
+                map: map,
+                title: 'Mi ubicación',
+                icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#ff0055', fillOpacity: 0.9, strokeColor: '#ff88cc', strokeWeight: 3 },
+                animation: google.maps.Animation.DROP
+              });
+            }
+          }, 100); // 100ms entre cada zoom, total ~1.2 segundos
+        }
+        
         // Centrar en ubicación real
         map.setCenter(userLocation);
-
-        // Agregar marcador de usuario
-        new google.maps.Marker({
-          position: userLocation,
-          map: map,
-          title: 'Mi ubicación',
-          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#ff0055', fillOpacity: 0.9, strokeColor: '#ff88cc', strokeWeight: 3 },
-          animation: google.maps.Animation.DROP
-        });
 
         // Efecto de éxito: agregar clase y remover overlay con zoom
         mapContainer.parentElement.classList.add('gps-found');

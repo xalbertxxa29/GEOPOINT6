@@ -151,20 +151,32 @@ function initUbicacionesMapa() {
   `;
   mapContainer.parentElement.style.position = 'relative';
   mapContainer.parentElement.insertBefore(gpsOverlay, mapContainer);
+  
+  // Aplicar efecto de zoom desde el espacio al contenedor del mapa
+  mapContainer.style.animation = 'spaceZoomEffect 3s ease-out forwards';
 
   const initialPosition = { lat: -12.0453, lng: -77.0311 }; // Lima, Perú
   
   ubicacionMapa = new google.maps.Map(mapContainer, {
     center: initialPosition,
-    zoom: 16,
+    zoom: 3, // Comienza zoom bajo (como viendo desde el espacio)
     mapTypeControl: false,
     fullscreenControl: true,
     zoomControl: true,
     streetViewControl: false,
     styles: [
-      { elementType: 'geometry', stylers: [{ color: '#1a1a2e' }] },
-      { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1a2e' }] },
-      { elementType: 'labels.text.fill', stylers: [{ color: '#00d4ff' }] }
+      { elementType: 'geometry', stylers: [{ color: '#0a0e1a' }] },
+      { elementType: 'geometry.stroke', stylers: [{ color: '#0a0e1a' }] },
+      { elementType: 'labels.text.stroke', stylers: [{ color: '#0a0e1a' }] },
+      { elementType: 'labels.text.fill', stylers: [{ color: '#00d4ff' }] },
+      { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#00ff64' }] }, // Verde NEON
+      { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#00ff64' }] },
+      { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#00ff88' }] }, // Verde NEON más claro
+      { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#00ff88', weight: 1 }] },
+      { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0d1b2a' }] },
+      { featureType: 'water', elementType: 'geometry.stroke', stylers: [{ color: '#00d4ff' }] },
+      { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+      { featureType: 'poi', stylers: [{ visibility: 'off' }] }
     ]
   });
 
@@ -256,8 +268,20 @@ function trackUserLocation(gpsOverlay, mapContainer) {
 
       console.log(`📍 Ubicación del dispositivo actualizada:`, currentPosition);
 
-      // Actualizar marcador del dispositivo
-      userMarker.setPosition(currentPosition);
+      // Efecto de zoom suave desde el espacio al ubicarse
+      if (ubicacionMapa) {
+        // Animación de zoom suave: zoom in desde 3 a 16
+        const zoomAnimation = setInterval(() => {
+          const currentZoom = ubicacionMapa.getZoom();
+          if (currentZoom < 16) {
+            ubicacionMapa.setZoom(currentZoom + 1);
+          } else {
+            clearInterval(zoomAnimation);
+            // Actualizar marcador después de terminar el zoom
+            userMarker.setPosition(currentPosition);
+          }
+        }, 100); // 100ms entre cada zoom, total ~1.3 segundos
+      }
       
       // Centrar mapa en dispositivo
       ubicacionMapa.setCenter(currentPosition);
@@ -280,10 +304,10 @@ function trackUserLocation(gpsOverlay, mapContainer) {
           left: 0;
           width: 100%;
           height: 100%;
-          background: radial-gradient(circle at center, rgba(0, 255, 100, 0.2), transparent 70%);
+          background: radial-gradient(circle at center, rgba(0, 255, 100, 0.3), transparent 60%);
           pointer-events: none;
-          animation: earthZoomIn 1s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
           z-index: 5;
+          animation: earthZoomIn 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         `;
         mapContainer.parentElement.insertBefore(earthEffectOverlay, mapContainer);
         

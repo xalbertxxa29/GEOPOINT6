@@ -738,7 +738,7 @@ header h1 {
 /* Elemento del mapa */
 .map-element {
   width: 100%;
-  height: 500px;
+  height: 600px;
   position: relative;
   background: 
     radial-gradient(circle at 30% 30%, rgba(0, 212, 255, 0.05), transparent 50%),
@@ -859,6 +859,28 @@ header h1 {
   }
 }
 
+/* Efecto de zoom suave acercándose desde el espacio */
+@keyframes spaceZoomEffect {
+  0% {
+    opacity: 0;
+    filter: blur(20px) brightness(1.2);
+    transform: scale(0.3);
+  }
+  20% {
+    opacity: 0.2;
+    filter: blur(15px) brightness(1.15);
+  }
+  50% {
+    opacity: 0.5;
+    filter: blur(5px) brightness(1);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0px) brightness(1);
+    transform: scale(1);
+  }
+}
+
 @keyframes mapPulseSuccess {
   0% {
     box-shadow: 
@@ -964,14 +986,14 @@ header h1 {
 /* Responsive - Tablets */
 @media (max-width: 1024px) {
   .map-element {
-    height: 400px;
+    height: 480px;
   }
 }
 
 /* Responsive - Móviles */
 @media (max-width: 768px) {
   .map-element {
-    height: 350px !important;
+    height: 420px !important;
     display: block !important;
   }
   
@@ -985,7 +1007,7 @@ header h1 {
 /* Responsive - Móviles pequeños */
 @media (max-width: 480px) {
   .map-element {
-    height: 300px !important;
+    height: 350px !important;
     display: block !important;
   }
   
