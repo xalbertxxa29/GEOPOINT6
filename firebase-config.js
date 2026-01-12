@@ -24,23 +24,37 @@ window.firebaseAuth = firebase.auth();
 window.firebaseStorage = firebase.storage();
 window.firebaseConfig = firebaseConfig;
 
-// Configurar persistencia local
-// Permite que el usuario permanezca autenticado aunque se cierre el navegador
-firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+// Configurar persistencia local (sesión permanente)
+window.firebaseAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
   .catch((error) => {
     console.warn('No se pudo establecer persistencia local:', error);
   });
 
-// Habilitar sincronización offline para Firestore
+// Configurar Firestore para WebView y offline
 try {
-  window.firebaseDB.enablePersistence()
-    .catch((error) => {
-      if (error.code === 'failed-precondition') {
-        console.warn('Múltiples pestañas abiertas, persistencia deshabilitada');
-      } else if (error.code === 'unimplemented') {
-        console.warn('Navegador no soporta persistencia de Firestore');
+  window.firebaseDB.settings({
+    ignoreUndefinedProperties: true,
+    experimentalAutoDetectLongPolling: true,
+    useFetchStreams: false
+  });
+} catch (e) {
+  console.warn('[Firestore] settings:', e?.message);
+}
+
+// Habilitar sincronización offline para Firestore
+if (!window.__FIRESTORE_PERSISTENCE_ENABLED__) {
+  window.__FIRESTORE_PERSISTENCE_ENABLED__ = true;
+  (async () => {
+    try {
+      await window.firebaseDB.enablePersistence({ synchronizeTabs: true });
+      console.log('[Firestore] Persistencia habilitada.');
+    } catch (err) {
+      const code = err && err.code;
+      if (code === 'failed-precondition') {
+        console.warn('[Firestore] Otra instancia tiene el lock');
+      } else if (code === 'unimplemented') {
+        console.warn('[Firestore] Persistencia no soportada');
       }
-    });
-} catch (error) {
-  console.warn('Error al habilitar persistencia de Firestore:', error);
+    }
+  })();
 }

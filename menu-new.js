@@ -3,46 +3,14 @@
  * Versión profesional corporativa con sesión offline robusta
  */
 
-// ========== PROTECCIÓN DE PÁGINA CON SESIÓN OFFLINE ==========
+// ========== PROTECCIÓN DE PÁGINA CON SESIÓN PERSISTENTE ==========
 
-// Esperar a que SessionManager esté disponible
-const waitForSessionManager = () => {
-  return new Promise((resolve) => {
-    if (window.SessionManager) {
-      resolve();
-    } else {
-      const checkInterval = setInterval(() => {
-        if (window.SessionManager) {
-          clearInterval(checkInterval);
-          resolve();
-        }
-      }, 50);
-      // Timeout de 5 segundos
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        resolve();
-      }, 5000);
-    }
-  });
-};
-
-window.firebaseAuth.onAuthStateChanged(async (user) => {
-  // Si hay usuario en Firebase, todo OK
+window.firebaseAuth.onAuthStateChanged((user) => {
   if (user) {
-    initializePage();
-    return;
-  }
-
-  // Si NO hay usuario en Firebase, esperar a SessionManager
-  await waitForSessionManager();
-
-  // Verificar sesión local (offline)
-  const session = window.SessionManager?.getSession();
-  if (session && session.isAuthenticated) {
-    // ✅ SESIÓN ACTIVA OFFLINE - NO REDIRIGIR
+    console.log('✅ Usuario autenticado:', user.email);
     initializePage();
   } else {
-    // ❌ SIN SESIÓN - REDIRIGIR A LOGIN
+    console.log('❌ Sin sesión activa. Redirigiendo al login...');
     window.location.href = 'index.html';
   }
 });
@@ -336,26 +304,17 @@ function initMap() {
     return;
   }
 
-  // Mostrar overlay de carga mientras obtiene GPS
+  // Mostrar overlay de carga con efecto tipo Google Earth
   const gpsOverlay = document.createElement('div');
-  gpsOverlay.style.cssText = `
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(5, 8, 18, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    z-index: 10;
-    color: #00d4ff;
-    font-weight: bold;
+  gpsOverlay.className = 'map-loading';
+  gpsOverlay.innerHTML = `
+    <div style="text-align: center;">
+      <div class="gps-loading-spinner"></div>
+      <div class="gps-loading-text">Obteniendo ubicación...</div>
+    </div>
   `;
-  gpsOverlay.innerHTML = '📍 Buscando ubicación...';
-  mapContainer.style.position = 'relative';
-  mapContainer.appendChild(gpsOverlay);
+  mapContainer.parentElement.style.position = 'relative';
+  mapContainer.parentElement.insertBefore(gpsOverlay, mapContainer);
 
   // Ubicación por defecto (Lima)
   const defaultLocation = { lat: -12.0464, lng: -77.0428 };
@@ -366,6 +325,7 @@ function initMap() {
     center: defaultLocation,
     mapTypeControl: false,
     fullscreenControl: true,
+    streetViewControl: false,
     styles: [
       { elementType: 'geometry', stylers: [{ color: '#050812' }] },
       { elementType: 'labels.text.fill', stylers: [{ color: '#00d4ff' }] },
@@ -387,6 +347,7 @@ function initMap() {
     const timeoutId = setTimeout(() => {
       // Si tarda más de 10 segundos, usar ubicación por defecto
       gpsOverlay.remove();
+      mapContainer.parentElement.classList.remove('gps-found');
       window.notificationSystem?.warning('GPS no disponible, usando ubicación por defecto');
     }, 10000);
 
@@ -410,13 +371,20 @@ function initMap() {
           icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#ff0055', fillOpacity: 0.9, strokeColor: '#ff88cc', strokeWeight: 3 }
         });
 
-        // Remover overlay
-        gpsOverlay.remove();
+        // Efecto de éxito: agregar clase y remover overlay
+        mapContainer.parentElement.classList.add('gps-found');
+        gpsOverlay.style.animation = 'fadeOut 0.5s ease-out forwards';
+        setTimeout(() => {
+          gpsOverlay.remove();
+        }, 500);
       },
       (error) => {
         clearTimeout(timeoutId);
         console.warn('Error de geolocalización:', error);
-        gpsOverlay.remove();
+        gpsOverlay.style.animation = 'fadeOut 0.5s ease-out forwards';
+        setTimeout(() => {
+          gpsOverlay.remove();
+        }, 500);
         window.notificationSystem?.warning('No se pudo obtener ubicación');
       }
     );

@@ -1,15 +1,16 @@
 /**
- * Formulario.js Mejorado - Gestión del Formulario de Tareas
+ * Formulario.js Mejorado - Gestión del Formulario de Tareas con Sesión Persistente
  */
 
 // Las instancias de Firebase ya están en window desde firebase-config.js
 // window.firebaseAuth, window.firebaseDB, window.firebaseStorage
 
 // Variables globales
-let ubicacionMapa, userMarker, clienteMarker, clienteCircle;
+let ubicacionMapa, userMarker, clienteMarker, clienteCircle, distancePolyline;
 let currentPosition = null;
 let watchId = null;
-const MAX_DISTANCE = 50; // metros
+const MAX_DISTANCE = 10; // metros (círculo de 10m)
+let authStateChangesFired = false;
 
 // Elementos del DOM
 const menuBtn = document.getElementById('menu-btn');
@@ -27,10 +28,12 @@ document.body.appendChild(overlay);
 
 window.firebaseAuth.onAuthStateChanged((user) => {
   if (!user) {
+    console.log('❌ Sin sesión activa. Redirigiendo al login...');
     window.location.href = 'index.html';
   } else {
+    console.log('✅ Usuario autenticado:', user.email);
     document.getElementById('fecha').innerText = Helpers.formatDate();
-    document.getElementById('user-name').innerText = user.displayName || 'Usuario';
+    document.getElementById('user-name').innerText = user.displayName || user.email;
     document.getElementById('user-email').innerText = user.email;
     inicializar();
   }
@@ -51,10 +54,33 @@ async function inicializar() {
     
     console.log(`👤 Usuario autenticado: ${user?.email || 'No disponible'}`);
     
-    cargarTipoDeTarea();
+    // Inicializar mapa primero
     initUbicacionesMapa();
-    console.log('📋 Llamando a populateDropdowns...');
+    
+    // Cargar datos offline o desde Firebase
+    cargarTipoDeTarea();
+    
+    console.log('📋 Cargando clientes y unidades...');
     await populateDropdowns(); // Esperar a que se carguen los clientes
+    
+    // Restaurar selecciones previas si existen
+    const lastCliente = Helpers.getStorage('ultimoCliente');
+    const lastUnidad = Helpers.getStorage('ultimaUnidad');
+    
+    if (lastCliente) {
+      document.getElementById('buscarCliente').value = lastCliente;
+      // Disparar cambio para cargar unidades
+      const event = new Event('change', { bubbles: true });
+      document.getElementById('buscarCliente').dispatchEvent(event);
+      
+      // Esperar a que se carguen las unidades y luego seleccionar
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (lastUnidad) {
+        document.getElementById('buscarUnidad').value = lastUnidad;
+        document.getElementById('buscarUnidad').dispatchEvent(event);
+      }
+    }
+    
     console.log('✅ Formulario inicializado correctamente');
   } catch (error) {
     console.error('❌ Error al inicializar:', error);
@@ -80,11 +106,7 @@ logoutBtn.addEventListener('click', async () => {
     async () => {
       try {
         window.loadingSystem.show('Cerrando sesión...');
-        await window.firebaseAuth.signOut();
-        window.loadingSystem.hide();
-        setTimeout(() => {
-          window.location.href = 'index.html';
-        }, 500);
+        await window.logoutUser();
       } catch (error) {
         window.loadingSystem.hide();
         window.notificationSystem.error('Error: ' + error.message);
@@ -105,20 +127,40 @@ window.addEventListener('offline', () => {
   window.notificationSystem.warning('Sin conexión a internet. No puedes descargar datos nuevos.', 'warning', 0);
 });
 
-// ========== GEOLOCALIZACIÓN ==========
+// ========== GEOLOCALIZACIÓN Y MAPA ==========
 
+/**
+ * Inicializa el mapa de Google Maps con marcadores y círculo de validación
+ */
 function initUbicacionesMapa() {
-  if (!document.getElementById('ubicaciones-mapa')) {
+  const mapContainer = document.getElementById('ubicaciones-mapa');
+  if (!mapContainer) {
+    console.error('❌ Contenedor del mapa no encontrado');
     window.notificationSystem.error('Contenedor del mapa no encontrado');
     return;
   }
 
-  const initialPosition = { lat: -12.0453, lng: -77.0311 };
-  ubicacionMapa = new google.maps.Map(document.getElementById('ubicaciones-mapa'), {
+  // Mostrar overlay de carga con efecto tipo Google Earth
+  const gpsOverlay = document.createElement('div');
+  gpsOverlay.className = 'map-loading';
+  gpsOverlay.innerHTML = `
+    <div style="text-align: center;">
+      <div class="gps-loading-spinner"></div>
+      <div class="gps-loading-text">Localizando dispositivo...</div>
+    </div>
+  `;
+  mapContainer.parentElement.style.position = 'relative';
+  mapContainer.parentElement.insertBefore(gpsOverlay, mapContainer);
+
+  const initialPosition = { lat: -12.0453, lng: -77.0311 }; // Lima, Perú
+  
+  ubicacionMapa = new google.maps.Map(mapContainer, {
     center: initialPosition,
-    zoom: 15,
+    zoom: 16,
     mapTypeControl: false,
-    fullscreenControl: false,
+    fullscreenControl: true,
+    zoomControl: true,
+    streetViewControl: false,
     styles: [
       { elementType: 'geometry', stylers: [{ color: '#1a1a2e' }] },
       { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1a2e' }] },
@@ -126,86 +168,179 @@ function initUbicacionesMapa() {
     ]
   });
 
+  // 🔵 Marcador del dispositivo (azul)
   userMarker = new google.maps.Marker({
     map: ubicacionMapa,
-    title: 'Tu ubicación',
-    icon: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32"%3E%3Ccircle cx="16" cy="16" r="14" fill="%2300d4ff" stroke="white" stroke-width="2"/%3E%3C/svg%3E'
+    title: 'Tu ubicación (Dispositivo)',
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 8,
+      fillColor: '#00d4ff',
+      fillOpacity: 1,
+      strokeColor: 'white',
+      strokeWeight: 2
+    },
+    zIndex: 100
   });
 
+  // 📍 Marcador del cliente (rojo)
   clienteMarker = new google.maps.Marker({
     map: ubicacionMapa,
     title: 'Ubicación del Cliente',
-    icon: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32"%3E%3Ccircle cx="16" cy="16" r="14" fill="%23ff0055" stroke="white" stroke-width="2"/%3E%3C/svg%3E'
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 10,
+      fillColor: '#ff0055',
+      fillOpacity: 1,
+      strokeColor: 'white',
+      strokeWeight: 2
+    },
+    zIndex: 50
   });
 
+  // ⭕ Círculo de validación (10 metros alrededor del cliente)
   clienteCircle = new google.maps.Circle({
     map: ubicacionMapa,
-    radius: MAX_DISTANCE,
+    radius: MAX_DISTANCE, // 10 metros
     fillColor: '#ff0055',
-    fillOpacity: 0.15,
+    fillOpacity: 0.1,
     strokeColor: '#ff0055',
     strokeOpacity: 0.6,
     strokeWeight: 2,
-    clickable: false
+    clickable: false,
+    zIndex: 1
   });
 
-  trackUserLocation();
+  // 📏 Línea de distancia entre dispositivo y cliente
+  distancePolyline = new google.maps.Polyline({
+    map: ubicacionMapa,
+    path: [],
+    geodesic: true,
+    strokeColor: '#00d4ff',
+    strokeOpacity: 0.7,
+    strokeWeight: 2,
+    clickable: false,
+    zIndex: 10
+  });
+
+  // Iniciar rastreo de ubicación del dispositivo
+  trackUserLocation(gpsOverlay, mapContainer);
 }
 
-function trackUserLocation() {
+/**
+ * Realiza seguimiento continuo de la ubicación del dispositivo
+ */
+function trackUserLocation(gpsOverlay, mapContainer) {
   if (!navigator.geolocation) {
+    console.error('❌ Navegador no soporta geolocalización');
     window.notificationSystem.error('Tu navegador no soporta geolocalización');
+    if (gpsOverlay) gpsOverlay.remove();
     return;
   }
 
+  // Limpiar watch anterior si existe
   if (watchId !== null) {
     navigator.geolocation.clearWatch(watchId);
   }
 
-  window.loadingSystem.show('Obteniendo ubicación...');
+  console.log('🔍 Iniciando rastreo de ubicación...');
+  window.loadingSystem.show('Obteniendo ubicación del dispositivo...');
 
   watchId = navigator.geolocation.watchPosition(
     (position) => {
       currentPosition = {
         lat: position.coords.latitude,
-        lng: position.coords.longitude
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy
       };
 
-      userMarker.setPosition(currentPosition);
-      ubicacionMapa.setCenter(currentPosition);
-      verificarDistancia();
-      window.loadingSystem.hide();
+      console.log(`📍 Ubicación del dispositivo actualizada:`, currentPosition);
 
-      console.log('Ubicación actualizada:', currentPosition);
+      // Actualizar marcador del dispositivo
+      userMarker.setPosition(currentPosition);
+      
+      // Centrar mapa en dispositivo
+      ubicacionMapa.setCenter(currentPosition);
+
+      // Actualizar línea de distancia si hay coordenadas del cliente
+      actualizarLineaDistancia();
+      
+      // Verificar si está dentro del círculo
+      verificarDistancia();
+      
+      // Efecto de éxito: agregar clase y remover overlay
+      if (gpsOverlay && gpsOverlay.parentElement) {
+        mapContainer.parentElement.classList.add('gps-found');
+        gpsOverlay.style.animation = 'fadeOut 0.5s ease-out forwards';
+        setTimeout(() => {
+          gpsOverlay.remove();
+        }, 500);
+      }
+      
+      window.loadingSystem.hide();
     },
     (error) => {
       window.loadingSystem.hide();
+      
+      // Remover overlay en caso de error
+      if (gpsOverlay && gpsOverlay.parentElement) {
+        gpsOverlay.style.animation = 'fadeOut 0.5s ease-out forwards';
+        setTimeout(() => {
+          gpsOverlay.remove();
+        }, 500);
+      }
 
       const errorMessages = {
-        1: 'Permiso denegado. Por favor habilita la geolocalización.',
-        2: 'No se pudo obtener la ubicación. Verifica tu GPS.',
-        3: 'Tiempo agotado. Intenta nuevamente.'
+        1: '❌ Permiso denegado. Habilita la geolocalización en tu dispositivo.',
+        2: '⚠️ No se pudo obtener la ubicación. Asegúrate de tener GPS activado.',
+        3: '⏱️ Tiempo agotado. Intenta nuevamente.'
       };
 
-      window.notificationSystem.error(errorMessages[error.code] || 'Error de geolocalización');
-      console.warn('Error de geolocalización:', error);
+      const message = errorMessages[error.code] || '❌ Error desconocido de geolocalización';
+      console.error(message, error);
+      window.notificationSystem.error(message);
     },
-    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+    {
+      enableHighAccuracy: true,  // Usa GPS de alta precisión
+      timeout: 20000,            // 20 segundos de timeout
+      maximumAge: 5000           // Usa datos de caché máximo de 5 segundos
+    }
   );
 }
 
-// ========== DISTANCIA ==========
+/**
+ * Actualiza la línea visual de distancia entre dispositivo y cliente
+ */
+function actualizarLineaDistancia() {
+  const clienteLat = parseFloat(document.getElementById('latitud').value);
+  const clienteLng = parseFloat(document.getElementById('longitud').value);
 
+  if (currentPosition && !isNaN(clienteLat) && !isNaN(clienteLng)) {
+    distancePolyline.setPath([
+      currentPosition,
+      { lat: clienteLat, lng: clienteLng }
+    ]);
+  }
+}
+
+// ========== VALIDACIÓN DE DISTANCIA ==========
+
+/**
+ * Verifica si el dispositivo está dentro del círculo de validación
+ */
 function verificarDistancia() {
   const clienteLat = parseFloat(document.getElementById('latitud').value);
   const clienteLng = parseFloat(document.getElementById('longitud').value);
 
+  // Si no hay posición actual o datos incompletos
   if (!currentPosition || isNaN(clienteLat) || isNaN(clienteLng)) {
     enviarBtn.disabled = true;
-    enviarBtn.title = 'Datos incompletos';
+    enviarBtn.title = 'Completa cliente, unidad y ubicación';
+    enviarBtn.style.opacity = '0.5';
     return;
   }
 
+  // Calcular distancia usando la fórmula de Haversine
   const distancia = Helpers.calculateDistance(
     currentPosition.lat,
     currentPosition.lng,
@@ -213,144 +348,259 @@ function verificarDistancia() {
     clienteLng
   );
 
+  console.log(`📏 Distancia al cliente: ${distancia.toFixed(2)}m (máximo: ${MAX_DISTANCE}m)`);
+
+  // Actualizar la línea de distancia visualmente
+  actualizarLineaDistancia();
+
+  // Determinar si está dentro del círculo
   if (distancia > MAX_DISTANCE) {
     enviarBtn.disabled = true;
-    enviarBtn.title = `A ${Math.round(distancia)}m de distancia (máximo ${MAX_DISTANCE}m)`;
+    enviarBtn.style.opacity = '0.5';
+    enviarBtn.title = `⚠️ Estás a ${Math.round(distancia)}m del cliente (máximo ${MAX_DISTANCE}m)`;
+    
+    // Cambiar color del círculo para indicar que está fuera
+    clienteCircle.setOptions({
+      fillColor: '#ff3333',
+      strokeColor: '#ff3333',
+      fillOpacity: 0.15
+    });
+    
+    console.warn(`❌ Fuera del rango: ${distancia.toFixed(2)}m > ${MAX_DISTANCE}m`);
   } else {
     enviarBtn.disabled = false;
-    enviarBtn.title = `A ${Math.round(distancia)}m de distancia - ¡Listo!`;
+    enviarBtn.style.opacity = '1';
+    enviarBtn.title = `✅ Estás a ${Math.round(distancia)}m - ¡Listo para enviar!`;
+    
+    // Cambiar color del círculo para indicar que está dentro
+    clienteCircle.setOptions({
+      fillColor: '#00ff00',
+      strokeColor: '#00ff00',
+      fillOpacity: 0.15
+    });
+    
+    console.log(`✅ Dentro del rango: ${distancia.toFixed(2)}m ≤ ${MAX_DISTANCE}m`);
   }
 }
 
+/**
+ * Actualiza las coordenadas del cliente en el mapa cuando se selecciona una unidad
+ */
 function actualizarClienteMapa(lat, lng) {
-  if (!isNaN(lat) && !isNaN(lng)) {
-    const clientePosition = { lat: parseFloat(lat), lng: parseFloat(lng) };
+  const parsedLat = parseFloat(lat);
+  const parsedLng = parseFloat(lng);
+
+  if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
+    const clientePosition = { lat: parsedLat, lng: parsedLng };
+    
+    console.log(`📍 Actualizando posición del cliente:`, clientePosition);
+    
+    // Actualizar marcador
     clienteMarker.setPosition(clientePosition);
+    
+    // Actualizar círculo de validación
     clienteCircle.setCenter(clientePosition);
+    
+    // Centrar mapa en el cliente
     ubicacionMapa.setCenter(clientePosition);
+    
+    // Ajustar zoom para ver ambos marcadores
+    const bounds = new google.maps.LatLngBounds();
+    if (currentPosition) {
+      bounds.extend(new google.maps.LatLng(currentPosition.lat, currentPosition.lng));
+    }
+    bounds.extend(new google.maps.LatLng(parsedLat, parsedLng));
+    ubicacionMapa.fitBounds(bounds);
+    
+    // Actualizar línea de distancia
+    actualizarLineaDistancia();
+    
+    // Verificar distancia
     verificarDistancia();
   }
 }
 
-// ========== DESPLEGABLES ==========
+// ========== DESPLEGABLES Y SELECCIONES ==========
 
+/**
+ * Carga la lista de clientes y prepara los desplegables
+ */
 async function populateDropdowns() {
   const clienteDropdown = document.getElementById('buscarCliente');
   const unidadDropdown = document.getElementById('buscarUnidad');
 
-  if (!navigator.onLine) {
-    window.notificationSystem.warning('Sin conexión a internet');
+  if (!clienteDropdown || !unidadDropdown) {
+    console.error('❌ Elementos del formulario no encontrados');
     return;
   }
 
   try {
+    // Si está offline, intentar cargar de almacenamiento local
+    if (!navigator.onLine) {
+      console.warn('⚠️ Sin conexión - cargando datos locales');
+      const clientesLocales = Helpers.getStorage('clientesCache') || [];
+      if (clientesLocales.length > 0) {
+        clienteDropdown.innerHTML = '<option value="">Seleccionar Cliente</option>';
+        clientesLocales.forEach(clienteId => {
+          const opt = document.createElement('option');
+          opt.value = clienteId;
+          opt.textContent = clienteId;
+          clienteDropdown.appendChild(opt);
+        });
+        console.log(`✅ ${clientesLocales.length} clientes cargados del caché`);
+      }
+      return;
+    }
+
     window.loadingSystem.show('Cargando clientes...');
     
-    // Obtenemos el snapshot para depurar mejor
-    console.log('🔍 Consultando colección CLIENTES...');
+    console.log('🔍 Consultando colección CLIENTES desde Firebase...');
     const snapshot = await window.firebaseDB.collection('CLIENTES').get();
 
     console.log(`📊 Total documentos encontrados: ${snapshot.size}`);
-    console.log('Revisando documentos encontrados...');
     
     clienteDropdown.innerHTML = '<option value="">Seleccionar Cliente</option>';
     unidadDropdown.innerHTML = '<option value="">Seleccionar Unidad</option>';
     unidadDropdown.disabled = true;
 
     if (snapshot.empty) {
-      console.error('❌ La colección está vacía. Verifica que los IDs de clientes NO estén en cursiva en Firebase Console.');
-      console.warn('💡 Si los documentos aparecen en cursiva, es porque son "virtuales" (solo tienen subcolecciones)');
-      console.warn('💡 Solución: Crea un documento físico con al menos un campo (ejemplo: existe: true)');
-      window.notificationSystem.warning('No se encontraron clientes físicos. Verifica Firebase Console.');
+      console.error('❌ La colección CLIENTES está vacía');
+      window.notificationSystem.warning('No se encontraron clientes. Verifica tu conexión.');
+      window.loadingSystem.hide();
       return;
     }
 
-    let clientesValidos = 0;
+    let clientesValidos = [];
+    
     snapshot.forEach((doc) => {
-      console.log(`✅ ID encontrado: ${doc.id}`, doc.data());
+      const clienteId = doc.id;
+      console.log(`✅ Cliente encontrado: ${clienteId}`);
+      
       const opt = document.createElement('option');
-      opt.value = doc.id;
-      opt.textContent = doc.id;
+      opt.value = clienteId;
+      opt.textContent = clienteId;
       clienteDropdown.appendChild(opt);
-      clientesValidos++;
+      
+      clientesValidos.push(clienteId);
     });
 
-    console.log(`✨ Total de clientes válidos cargados: ${clientesValidos}`);
+    // Guardar en caché para acceso offline
+    Helpers.setStorage('clientesCache', clientesValidos);
+    console.log(`✨ ${clientesValidos.length} clientes válidos cargados y cacheados`);
 
-    // Evento para cargar unidades
+    // Evento para cargar unidades cuando se selecciona un cliente
     clienteDropdown.addEventListener('change', async () => {
       const selectedClienteId = clienteDropdown.value;
       console.log(`👤 Cliente seleccionado: ${selectedClienteId}`);
+      
+      // Guardar selección
+      Helpers.setStorage('ultimoCliente', selectedClienteId);
+      
       unidadDropdown.innerHTML = '<option value="">Seleccionar Unidad</option>';
+      
+      // Limpiar datos del cliente
+      document.getElementById('latitud').value = '';
+      document.getElementById('longitud').value = '';
+      actualizarClienteMapa(null, null);
 
-      if (selectedClienteId) {
-        try {
-          window.loadingSystem.show('Cargando unidades...');
-          console.log(`🔍 Consultando unidades para: CLIENTES/${selectedClienteId}/UNIDADES`);
-          
-          const unidadesSnapshot = await window.firebaseDB
-            .collection(`CLIENTES/${selectedClienteId}/UNIDADES`)
-            .get();
-
-          console.log(`📊 Unidades encontradas: ${unidadesSnapshot.size}`);
-
-          if (unidadesSnapshot.empty) {
-            console.warn(`⚠️ El cliente ${selectedClienteId} no tiene unidades`);
-            window.notificationSystem.warning('Este cliente no tiene unidades');
-            return;
-          }
-
-          unidadesSnapshot.forEach((unidadDoc) => {
-            console.log(`✅ Unidad encontrada: ${unidadDoc.id}`);
-            const opt = document.createElement('option');
-            opt.value = unidadDoc.id;
-            opt.textContent = unidadDoc.id;
-            unidadDropdown.appendChild(opt);
-          });
-
-          unidadDropdown.disabled = false;
-          console.log('✨ Dropdown de unidades habilitado');
-        } catch (error) {
-          console.error('❌ Error de Firestore al cargar unidades:', error);
-          window.notificationSystem.error('Error: ' + error.code);
-        } finally {
-          window.loadingSystem.hide();
-        }
-      } else {
+      if (!selectedClienteId) {
         unidadDropdown.disabled = true;
+        return;
+      }
+
+      try {
+        window.loadingSystem.show('Cargando unidades...');
+        console.log(`🔍 Consultando: CLIENTES/${selectedClienteId}/UNIDADES`);
+        
+        const unidadesSnapshot = await window.firebaseDB
+          .collection(`CLIENTES/${selectedClienteId}/UNIDADES`)
+          .get();
+
+        console.log(`📊 Unidades encontradas: ${unidadesSnapshot.size}`);
+
+        if (unidadesSnapshot.empty) {
+          console.warn(`⚠️ El cliente ${selectedClienteId} no tiene unidades`);
+          window.notificationSystem.warning('Este cliente no tiene unidades registradas');
+          window.loadingSystem.hide();
+          return;
+        }
+
+        unidadesSnapshot.forEach((unidadDoc) => {
+          const unidadId = unidadDoc.id;
+          console.log(`✅ Unidad encontrada: ${unidadId}`);
+          
+          const opt = document.createElement('option');
+          opt.value = unidadId;
+          opt.textContent = unidadId;
+          unidadDropdown.appendChild(opt);
+        });
+
+        unidadDropdown.disabled = false;
+        console.log('✨ Dropdown de unidades habilitado');
+        window.loadingSystem.hide();
+      } catch (error) {
+        window.loadingSystem.hide();
+        console.error('❌ Error al cargar unidades:', error);
+        window.notificationSystem.error('Error: ' + error.message);
       }
     });
 
   } catch (error) {
-    console.error('❌ Error de Firestore:', error);
-    window.notificationSystem.error('Error: ' + error.code);
+    console.error('❌ Error cargando clientes:', error);
+    window.notificationSystem.error('Error al cargar clientes: ' + error.message);
   } finally {
     window.loadingSystem.hide();
   }
 }
 
-document.getElementById('buscarUnidad').addEventListener('change', async () => {
-  const clienteId = document.getElementById('buscarCliente').value;
-  const unidadId = document.getElementById('buscarUnidad').value;
+/**
+ * Cargar datos de la unidad seleccionada
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  const unidadDropdown = document.getElementById('buscarUnidad');
+  
+  unidadDropdown?.addEventListener('change', async () => {
+    const clienteId = document.getElementById('buscarCliente').value;
+    const unidadId = unidadDropdown.value;
 
-  console.log(`📍 Unidad seleccionada - Cliente: ${clienteId}, Unidad: ${unidadId}`);
+    // Guardar selección
+    if (unidadId) {
+      Helpers.setStorage('ultimaUnidad', unidadId);
+    }
 
-  if (clienteId && unidadId) {
+    console.log(`📍 Unidad seleccionada - Cliente: ${clienteId}, Unidad: ${unidadId}`);
+
+    if (!clienteId || !unidadId) {
+      document.getElementById('latitud').value = '';
+      document.getElementById('longitud').value = '';
+      actualizarClienteMapa(null, null);
+      return;
+    }
+
     try {
       window.loadingSystem.show('Cargando datos de la unidad...');
-      console.log(`🔍 Obteniendo datos: CLIENTES/${clienteId}/UNIDADES/${unidadId}`);
+      console.log(`🔍 Obteniendo: CLIENTES/${clienteId}/UNIDADES/${unidadId}`);
       
-      const unidadDoc = await window.firebaseDB.doc(`CLIENTES/${clienteId}/UNIDADES/${unidadId}`).get();
+      const unidadDoc = await window.firebaseDB
+        .doc(`CLIENTES/${clienteId}/UNIDADES/${unidadId}`)
+        .get();
       
       if (unidadDoc.exists) {
         const unidadData = unidadDoc.data();
         console.log('📊 Datos de unidad obtenidos:', unidadData);
         
-        document.getElementById('latitud').value = unidadData.latitud || '';
-        document.getElementById('longitud').value = unidadData.longitud || '';
+        const lat = unidadData.latitud || '';
+        const lng = unidadData.longitud || '';
+        
+        document.getElementById('latitud').value = lat;
+        document.getElementById('longitud').value = lng;
 
-        console.log(`📍 Coordenadas: ${unidadData.latitud}, ${unidadData.longitud}`);
-        actualizarClienteMapa(unidadData.latitud, unidadData.longitud);
+
+        console.log(`📍 Coordenadas: ${lat}, ${lng}`);
+        
+        // Actualizar mapa con nueva ubicación del cliente
+        actualizarClienteMapa(lat, lng);
+        
         window.loadingSystem.hide();
         console.log('✅ Datos de unidad cargados correctamente');
       } else {
@@ -360,10 +610,10 @@ document.getElementById('buscarUnidad').addEventListener('change', async () => {
       }
     } catch (error) {
       window.loadingSystem.hide();
-      console.error('❌ Error al cargar datos de unidad:', error);
+      console.error('❌ Error al cargar unidad:', error);
       window.notificationSystem.error('Error: ' + error.message);
     }
-  }
+  });
 });
 
 // ========== TIPO DE TAREA ==========
