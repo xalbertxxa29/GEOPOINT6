@@ -1,8 +1,9 @@
 /**
- * Service Worker - Estrategia de caché y soporte offline avanzado
+ * Service Worker v4 - Estrategia mejorada (Offline-First + SWR)
+ * Basada en BBVA3 pero adaptada para GEOPOINT6
  */
 
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_NAMES = {
   static: `lidercontrol-static-${CACHE_VERSION}`,
   dynamic: `lidercontrol-dynamic-${CACHE_VERSION}`,
@@ -17,26 +18,29 @@ const STATIC_ASSETS = [
   './formulario.html',
   './styles.css',
   './menu.css',
+  './menu-new.css',
   './formulario.css',
   './neon-styles.css',
   './script.js',
-  './menu.js',
+  './menu-new.js',
   './formulario.js',
-  './app.js',
   './firebase-config.js',
   './notification-system.js',
   './loader-system.js',
   './helpers.js',
+  './session-persistence.js',
+  './offline-queue.js',
   './manifest.json'
 ];
 
-// URLpattern a excluir del caché
+// URLs a excluir del caché (Firebase, Google, etc)
 const EXCLUDE_PATTERNS = [
   /^https:\/\/firebase\.googleapis\.com/,
   /^https:\/\/www\.gstatic\.com/,
   /^https:\/\/maps\.googleapis\.com/,
   /^https:\/\/accounts\.google\.com/,
-  /^chrome:\/\//
+  /^chrome:\/\//,
+  /^https:\/\/.*\.firebaseio\.com/
 ];
 
 // ========== INSTALACIÓN ==========
@@ -46,14 +50,12 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAMES.static).then((cache) => {
       console.log('Cacheando assets estáticos');
-      return cache.addAll(STATIC_ASSETS).catch((error) => {
-        console.warn('Algunos assets no se pudieron cachear:', error);
-        // No fallar completamente si algunos archivos no están disponibles
-      });
-    })
+      return cache.addAll(STATIC_ASSETS.map(url => new Request(url, { cache: 'reload' })))
+        .catch((error) => {
+          console.warn('Algunos assets no se pudieron cachear:', error);
+        });
+    }).then(() => self.skipWaiting())
   );
-
-  self.skipWaiting();
 });
 
 // ========== ACTIVACIÓN ==========
@@ -73,10 +75,16 @@ self.addEventListener('activate', (event) => {
           })
           .map((cacheName) => caches.delete(cacheName))
       );
+    }).then(() => {
+      // Habilitar Navigation Preload si está disponible
+      if (self.registration.navigationPreload) {
+        return self.registration.navigationPreload.enable();
+      }
+    }).then(() => {
+      // Avisar a los clientes que el SW está listo
+      return self.clients.claim();
     })
   );
-
-  self.clients.claim();
 });
 
 // ========== MANEJO DE SOLICITUDES ==========
@@ -89,40 +97,58 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Estrategia diferente según el tipo de solicitud
+  // Solo GET
   if (request.method !== 'GET') {
     return event.respondWith(fetch(request));
   }
 
-  // Solicitudes a API de Firebase/Firestore
+  // Solicitudes a API de Firebase/Firestore - Network First
   if (url.origin.includes('firebase') || url.origin.includes('firebaseio')) {
     event.respondWith(networkFirstStrategy(request));
     return;
   }
 
-  // Imágenes
+  // Imágenes - Cache First
   if (request.destination === 'image') {
     event.respondWith(cacheFirstStrategy(request, CACHE_NAMES.images));
     return;
   }
 
-  // Documentos HTML
+  // Documentos HTML - Network First
   if (request.destination === 'document') {
     event.respondWith(networkFirstStrategy(request));
     return;
   }
 
-  // Scripts y estilos
+  // Scripts y estilos - Cache First
   if (['script', 'style'].includes(request.destination)) {
     event.respondWith(cacheFirstStrategy(request, CACHE_NAMES.static));
     return;
   }
 
-  // Por defecto: Network first
-  event.respondWith(networkFirstStrategy(request));
+  // Por defecto: Stale While Revalidate (SWR)
+  event.respondWith(staleWhileRevalidate(request));
 });
 
 // ========== ESTRATEGIAS ==========
+
+/**
+ * Stale While Revalidate (SWR)
+ * Sirve desde caché pero actualiza en background
+ */
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(CACHE_NAMES.dynamic);
+  const cached = await cache.match(request);
+
+  const fetchPromise = fetch(request).then((response) => {
+    if (response && response.ok && response.type === 'basic') {
+      cache.put(request, response.clone());
+    }
+    return response;
+  }).catch(() => undefined);
+
+  return cached || fetchPromise;
+}
 
 /**
  * Cache First Strategy
@@ -172,24 +198,6 @@ async function networkFirstStrategy(request) {
     }
     return createOfflineResponse();
   }
-}
-
-/**
- * Stale While Revalidate Strategy
- * Retorna el caché inmediatamente y actualiza en background
- */
-async function staleWhileRevalidateStrategy(request) {
-  const cache = await caches.open(CACHE_NAMES.dynamic);
-  const cachedResponse = await cache.match(request);
-
-  const fetchPromise = fetch(request).then((networkResponse) => {
-    if (networkResponse && networkResponse.status === 200) {
-      cache.put(request, networkResponse.clone());
-    }
-    return networkResponse;
-  }).catch(() => cachedResponse);
-
-  return cachedResponse || fetchPromise;
 }
 
 // ========== RESPUESTA OFFLINE ==========

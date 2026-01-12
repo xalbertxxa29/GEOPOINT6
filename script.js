@@ -9,6 +9,21 @@
 const loginForm = document.getElementById('login-form');
 const loginBtn = document.getElementById('login-btn');
 const connectionStatus = document.getElementById('connection-status');
+const passwordInput = document.getElementById('password');
+const togglePasswordBtn = document.getElementById('toggle-password');
+
+// Toggle de visibilidad de contraseña
+if (togglePasswordBtn) {
+  togglePasswordBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    
+    const isPassword = passwordInput.type === 'password';
+    passwordInput.type = isPassword ? 'text' : 'password';
+    
+    // Cambiar el emoji del ojo
+    togglePasswordBtn.textContent = isPassword ? '🙈' : '👁️';
+  });
+}
 
 // Monitorear estado de conexión
 function updateConnectionStatus() {
@@ -65,13 +80,18 @@ loginForm.addEventListener('submit', async (e) => {
     const userCredential = await window.firebaseAuth.signInWithEmailAndPassword(email, password);
     const user = userCredential.user;
 
-    // Guardar información del usuario en localStorage
-    Helpers.setStorage('userData', {
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName || 'Usuario',
-      lastLogin: new Date().toISOString()
-    });
+    // Guardar información del usuario en SessionPersistence
+    const sessionData = {
+      userData: {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || 'Usuario',
+        lastLogin: new Date().toISOString()
+      },
+      sessionToken: user.uid
+    };
+    
+    await window.SessionPersistence.saveSession(sessionData);
 
     window.notificationSystem.success(`¡Bienvenido ${user.displayName || 'Usuario'}!`);
 
@@ -130,11 +150,22 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// Verificar si ya hay usuario autenticado
-window.firebaseAuth.onAuthStateChanged(user => {
+// Verificar si ya hay usuario autenticado o sesión persistente
+window.firebaseAuth.onAuthStateChanged(async (user) => {
   if (user && window.location.pathname.includes('index.html')) {
-    // Si hay usuario y estamos en login, redirigir a menu
+    // Si hay usuario autenticado y estamos en login, redirigir a menu
     window.location.href = 'menu.html';
+  } else if (!user) {
+    // Si no hay usuario autenticado, verificar si hay sesión en SessionPersistence
+    try {
+      const sessionData = await window.SessionPersistence.getSession();
+      if (sessionData && sessionData.userData && window.location.pathname.includes('index.html')) {
+        // Hay sesión guardada, redirigir a menu (sesión persistente)
+        window.location.href = 'menu.html';
+      }
+    } catch (error) {
+      console.warn('Error al verificar sesión persistente:', error);
+    }
   }
 });
 
