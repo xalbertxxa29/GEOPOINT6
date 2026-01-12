@@ -473,7 +473,7 @@ header h1 {
   border-top: 3px solid #00d4ff;
   border-radius: 50%;
   animation: gpsSpin 1.5s linear infinite;
-  box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.5), 0 0 40px rgba(0, 212, 255, 0.3);
 }
 
 .gps-loading-spinner::after {
@@ -484,6 +484,7 @@ header h1 {
   transform: translate(-50%, -50%);
   font-size: 28px;
   animation: gpsLocationPulse 1.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 10px rgba(0, 212, 255, 0.6));
 }
 
 @keyframes gpsSpin {
@@ -536,22 +537,49 @@ header h1 {
   }
 }
 
-/* Efecto de ubicación encontrada */
-.map-container.gps-found {
-  animation: gpsSuccess 0.6s ease-out;
+/* ========== ANIMACIÓN GOOGLE EARTH - ZOOM DESDE EL ESPACIO ========== */
+
+@keyframes earthZoomIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.1) translateZ(1000px);
+  }
+  30% {
+    opacity: 0.3;
+  }
+  60% {
+    opacity: 0.8;
+    transform: scale(2) translateZ(500px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateZ(0);
+  }
 }
 
-@keyframes gpsSuccess {
+@keyframes mapPulseSuccess {
   0% {
     box-shadow: 
       0 0 30px rgba(0, 212, 255, 0.3),
       inset 0 0 20px rgba(0, 212, 255, 0.1),
       0 8px 32px rgba(0, 0, 0, 0.3);
   }
+  25% {
+    box-shadow: 
+      0 0 60px rgba(0, 255, 100, 0.8),
+      inset 0 0 40px rgba(0, 255, 100, 0.3),
+      0 8px 32px rgba(0, 0, 0, 0.3);
+  }
   50% {
     box-shadow: 
-      0 0 50px rgba(0, 255, 100, 0.6),
-      inset 0 0 30px rgba(0, 255, 100, 0.2),
+      0 0 40px rgba(0, 212, 255, 0.5),
+      inset 0 0 25px rgba(0, 212, 255, 0.15),
+      0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+  75% {
+    box-shadow: 
+      0 0 60px rgba(0, 255, 100, 0.8),
+      inset 0 0 40px rgba(0, 255, 100, 0.3),
       0 8px 32px rgba(0, 0, 0, 0.3);
   }
   100% {
@@ -560,6 +588,54 @@ header h1 {
       inset 0 0 20px rgba(0, 212, 255, 0.1),
       0 8px 32px rgba(0, 0, 0, 0.3);
   }
+}
+
+@keyframes markerPulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Efecto de onda expansiva al encontrar ubicación */
+@keyframes rippleExpand {
+  0% {
+    width: 30px;
+    height: 30px;
+    opacity: 1;
+    border: 2px solid rgba(0, 255, 100, 0.8);
+  }
+  100% {
+    width: 120px;
+    height: 120px;
+    opacity: 0;
+    border: 2px solid rgba(0, 255, 100, 0.1);
+  }
+}
+
+.gps-ripple {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Efecto de ubicación encontrada */
+.map-container.gps-found {
+  animation: mapPulseSuccess 1.2s ease-out;
+}
+
+/* Efecto de zoom en overlay cuando se encontró ubicación */
+.map-container.gps-found .map-loading {
+  animation: earthZoomIn 1s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* Responsive - Tablets */
@@ -572,11 +648,13 @@ header h1 {
 /* Responsive - Móviles */
 @media (max-width: 768px) {
   .map-element {
-    height: 350px;
+    height: 350px !important;
+    display: block !important;
   }
   
   .map-container {
-    margin: 15px 0;
+    margin: 15px 0 !important;
+    display: block !important;
     border-radius: 8px;
   }
 }
@@ -584,16 +662,16 @@ header h1 {
 /* Responsive - Móviles pequeños */
 @media (max-width: 480px) {
   .map-element {
-    height: 300px;
+    height: 300px !important;
+    display: block !important;
   }
   
   .map-container {
-    margin: 10px 0;
+    margin: 10px 0 !important;
+    display: block !important;
     box-shadow: 
       0 0 20px rgba(0, 212, 255, 0.2),
       inset 0 0 15px rgba(0, 212, 255, 0.05),
       0 4px 16px rgba(0, 0, 0, 0.3);
   }
-}
-    background-color: #D84315;
 }

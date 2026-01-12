@@ -368,15 +368,47 @@ function initMap() {
           position: userLocation,
           map: map,
           title: 'Mi ubicación',
-          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#ff0055', fillOpacity: 0.9, strokeColor: '#ff88cc', strokeWeight: 3 }
+          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#ff0055', fillOpacity: 0.9, strokeColor: '#ff88cc', strokeWeight: 3 },
+          animation: google.maps.Animation.DROP
         });
 
-        // Efecto de éxito: agregar clase y remover overlay
+        // Efecto de éxito: agregar clase y remover overlay con zoom
         mapContainer.parentElement.classList.add('gps-found');
-        gpsOverlay.style.animation = 'fadeOut 0.5s ease-out forwards';
+        
+        // Crear efecto visual de zoom desde el espacio
+        const earthEffectOverlay = document.createElement('div');
+        earthEffectOverlay.style.cssText = `
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: radial-gradient(circle at center, rgba(0, 255, 100, 0.2), transparent 70%);
+          pointer-events: none;
+          animation: earthZoomIn 1s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+          z-index: 5;
+        `;
+        mapContainer.parentElement.insertBefore(earthEffectOverlay, mapContainer);
+        
+        // Crear onda expansiva de ripple (solo si es la primera vez)
+        setTimeout(() => {
+          const ripples = mapContainer.parentElement.querySelectorAll('.gps-ripple');
+          if (ripples.length < 3) {
+            const ripple = document.createElement('div');
+            ripple.className = 'gps-ripple';
+            ripple.style.animation = 'rippleExpand 0.8s ease-out forwards';
+            mapContainer.parentElement.appendChild(ripple);
+            
+            setTimeout(() => ripple.remove(), 800);
+          }
+        }, 300);
+        
+        // Remover overlay de carga
+        gpsOverlay.style.animation = 'fadeOut 0.6s ease-out forwards';
         setTimeout(() => {
           gpsOverlay.remove();
-        }, 500);
+          earthEffectOverlay.remove();
+        }, 600);
       },
       (error) => {
         clearTimeout(timeoutId);
