@@ -9,7 +9,7 @@
 let ubicacionMapa, userMarker, clienteMarker, clienteCircle, distancePolyline;
 let currentPosition = null;
 let watchId = null;
-const MAX_DISTANCE = 10; // metros (círculo de 10m)
+const MAX_DISTANCE = 30; // metros (círculo de 30m - radio de geolocalización)
 let authStateChangesFired = false;
 
 // Elementos del DOM
@@ -118,7 +118,7 @@ logoutBtn.addEventListener('click', async () => {
 // ========== MONITOR DE CONEXIÓN ==========
 
 window.addEventListener('online', () => {
-  console.log('✅ CONEXIÓN RESTAURADA');
+  console.log('✅ CONEXIÓN RESTAURADA'); 
   window.notificationSystem.success('Conexión restaurada. Ya puedes cargar clientes.');
 });
 
@@ -210,10 +210,10 @@ function initUbicacionesMapa() {
     zIndex: 50
   });
 
-  // ⭕ Círculo de validación (10 metros alrededor del cliente)
+  // ⭕ Círculo de validación (30 metros alrededor del cliente)
   clienteCircle = new google.maps.Circle({
     map: ubicacionMapa,
-    radius: MAX_DISTANCE, // 10 metros
+    radius: MAX_DISTANCE, // 30 metros
     fillColor: '#ff0055',
     fillOpacity: 0.1,
     strokeColor: '#ff0055',
@@ -228,9 +228,9 @@ function initUbicacionesMapa() {
     map: ubicacionMapa,
     path: [],
     geodesic: true,
-    strokeColor: '#00d4ff',
-    strokeOpacity: 0.7,
-    strokeWeight: 2,
+    strokeColor: '#ff0000',
+    strokeOpacity: 0.9,
+    strokeWeight: 6,
     clickable: false,
     zIndex: 10
   });
@@ -371,10 +371,21 @@ function actualizarLineaDistancia() {
   const clienteLng = parseFloat(document.getElementById('longitud').value);
 
   if (currentPosition && !isNaN(clienteLat) && !isNaN(clienteLng)) {
+    // Actualizar la línea roja entre ambas ubicaciones
     distancePolyline.setPath([
       currentPosition,
       { lat: clienteLat, lng: clienteLng }
     ]);
+
+    // ✅ NUEVO: Zoom automático para ver ambas ubicaciones
+    if (ubicacionMapa) {
+      const bounds = new google.maps.LatLngBounds();
+      bounds.extend(currentPosition);
+      bounds.extend({ lat: clienteLat, lng: clienteLng });
+      
+      // Ajustar zoom para que quepan ambas ubicaciones con padding
+      ubicacionMapa.fitBounds(bounds, { top: 50, right: 50, bottom: 50, left: 50 });
+    }
   }
 }
 
@@ -465,7 +476,7 @@ function actualizarClienteMapa(lat, lng) {
       bounds.extend(new google.maps.LatLng(currentPosition.lat, currentPosition.lng));
     }
     bounds.extend(new google.maps.LatLng(parsedLat, parsedLng));
-    ubicacionMapa.fitBounds(bounds);
+    ubicacionMapa.fitBounds(bounds, { top: 50, right: 50, bottom: 50, left: 50 });
     
     // Actualizar línea de distancia
     actualizarLineaDistancia();
