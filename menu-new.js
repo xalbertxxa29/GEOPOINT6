@@ -1,96 +1,94 @@
 /**
  * Menu.js Mejorado - Gestión del Menú Principal
- * Sistema robusto con sesión persistente, offline y sincronización
+ * Versión profesional corporativa con sesión offline robusta
  */
 
-// ========== VARIABLES GLOBALES ==========
-const menuBtn = document.getElementById('menu-btn');
-const sideMenu = document.getElementById('side-menu');
-const logoutBtn = document.getElementById('logout-btn');
-const tabBtns = document.querySelectorAll('.tab-btn');
-const tabContents = document.querySelectorAll('.tab-content');
-const mainFab = document.getElementById('main-fab');
-const closeModal = document.getElementById('close-modal');
-const modal = document.getElementById('modal');
-const modalOptions = document.querySelectorAll('.modal-option');
-const overlay = document.createElement('div');
+// ========== PROTECCIÓN DE PÁGINA CON SESIÓN OFFLINE ==========
 
-// Setup overlay
-overlay.classList.add('overlay');
-document.body.appendChild(overlay);
-
-// ========== AUTENTICACIÓN Y SESIÓN ==========
-
-/**
- * Monitor de estado de autenticación con sesión persistente
- */
-async function initAuthState() {
-  window.firebaseAuth.onAuthStateChanged(async (user) => {
-    if (!user) {
-      // Intentar recuperar usuario desde sesión persistente
-      try {
-        const sessionData = await window.SessionPersistence?.getSession();
-        
-        if (sessionData && sessionData.userData) {
-          loadUserData(sessionData.userData);
-          if (navigator.onLine) {
-            cargarTareasIniciadas(sessionData.userData.email);
-            cargarTareasCompletadas(sessionData.userData.email);
-          } else {
-            cargarTareasDelCache(sessionData.userData.email);
-          }
-        } else {
-          window.location.href = 'index.html';
-        }
-      } catch (error) {
-        console.error('Error al recuperar sesión:', error);
-        window.location.href = 'index.html';
-      }
+// Esperar a que SessionManager esté disponible
+const waitForSessionManager = () => {
+  return new Promise((resolve) => {
+    if (window.SessionManager) {
+      resolve();
     } else {
-      // Usuario autenticado en Firebase
-      loadUserData({
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName || 'Usuario',
-        lastLogin: new Date().toISOString()
-      });
-
-      // Guardar sesión en persistencia
-      const sessionData = {
-        userData: {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName || 'Usuario',
-          lastLogin: new Date().toISOString()
-        },
-        sessionToken: user.uid
-      };
-      
-      await window.SessionPersistence?.saveSession(sessionData);
-      
-      cargarTareasIniciadas(user.email);
-      cargarTareasCompletadas(user.email);
+      const checkInterval = setInterval(() => {
+        if (window.SessionManager) {
+          clearInterval(checkInterval);
+          resolve();
+        }
+      }, 50);
+      // Timeout de 5 segundos
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        resolve();
+      }, 5000);
     }
   });
-}
+};
 
-/**
- * Cargar datos del usuario en la UI
- */
-function loadUserData(userData) {
-  const fechaEl = document.getElementById('fecha');
-  const userNameEl = document.getElementById('user-name');
-  const userEmailEl = document.getElementById('user-email');
+window.firebaseAuth.onAuthStateChanged(async (user) => {
+  // Si hay usuario en Firebase, todo OK
+  if (user) {
+    initializePage();
+    return;
+  }
 
-  if (fechaEl) fechaEl.innerText = Helpers.formatDate();
-  if (userNameEl) userNameEl.innerText = userData.displayName || 'Usuario';
-  if (userEmailEl) userEmailEl.innerText = userData.email;
+  // Si NO hay usuario en Firebase, esperar a SessionManager
+  await waitForSessionManager();
+
+  // Verificar sesión local (offline)
+  const session = window.SessionManager?.getSession();
+  if (session && session.isAuthenticated) {
+    // ✅ SESIÓN ACTIVA OFFLINE - NO REDIRIGIR
+    initializePage();
+  } else {
+    // ❌ SIN SESIÓN - REDIRIGIR A LOGIN
+    window.location.href = 'index.html';
+  }
+});
+
+// ========== INICIALIZACIÓN DE PÁGINA ==========
+
+function initializePage() {
+  // Obtener usuario actual
+  const user = window.firebaseAuth.currentUser;
+  const userData = user ? {
+    uid: user.uid,
+    email: user.email,
+    displayName: user.displayName || 'Usuario'
+  } : window.SessionManager.getUserData();
+
+  if (!userData) {
+    window.location.href = 'index.html';
+    return;
+  }
+
+  // Mostrar datos del usuario
+  document.getElementById('fecha').innerText = Helpers.formatDate();
+  document.getElementById('user-name').innerText = userData.displayName;
+  document.getElementById('user-email').innerText = userData.email;
+
+  // Inicializar componentes
+  initMenu();
+  initTabs();
+  initLogout();
+  initFab();
+  
+  // Cargar tareas
+  cargarTareas(userData.email);
+  
+  // Monitorear conexión
+  monitorearConexion();
 }
 
 // ========== MENÚ LATERAL ==========
 
-function initSideMenu() {
-  if (!menuBtn || !sideMenu) return;
+function initMenu() {
+  const menuBtn = document.getElementById('menu-btn');
+  const sideMenu = document.getElementById('side-menu');
+  const overlay = document.querySelector('.overlay') || createOverlay();
+
+  if (!menuBtn) return;
 
   menuBtn.addEventListener('click', () => {
     sideMenu.classList.toggle('active');
@@ -102,396 +100,234 @@ function initSideMenu() {
     overlay.classList.remove('active');
   });
 
-  document.addEventListener('click', (event) => {
-    if (sideMenu.classList.contains('active') &&
-        !sideMenu.contains(event.target) &&
-        !menuBtn.contains(event.target)) {
+  // Cerrar menú al hacer click en un enlace
+  document.querySelectorAll('#side-menu a').forEach(link => {
+    link.addEventListener('click', () => {
       sideMenu.classList.remove('active');
       overlay.classList.remove('active');
-    }
-  });
-}
-
-// ========== LOGOUT ==========
-
-function initLogout() {
-  if (!logoutBtn) return;
-
-  logoutBtn.addEventListener('click', async () => {
-    window.notificationSystem?.confirm(
-      '¿Deseas cerrar sesión?',
-      async () => {
-        try {
-          window.loadingSystem?.show('Cerrando sesión...');
-          await window.firebaseAuth.signOut();
-          await window.SessionPersistence?.clearSession();
-          
-          window.loadingSystem?.hide();
-          window.notificationSystem?.success('Sesión cerrada');
-          setTimeout(() => {
-            window.location.href = 'index.html';
-          }, 500);
-        } catch (error) {
-          window.loadingSystem?.hide();
-          window.notificationSystem?.error('Error al cerrar sesión: ' + error.message);
-        }
-      }
-    );
+    });
   });
 }
 
 // ========== TABS ==========
 
 function initTabs() {
-  tabBtns.forEach((btn) => {
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      tabBtns.forEach((b) => b.classList.remove('active'));
-      tabContents.forEach((content) => content.classList.remove('active'));
+      const tabName = btn.getAttribute('data-tab');
+      
+      // Remover clase activa de todos
+      tabBtns.forEach(b => b.classList.remove('active'));
+      tabContents.forEach(content => content.classList.remove('active'));
+      
+      // Agregar clase activa al seleccionado
       btn.classList.add('active');
-      const tabId = btn.dataset.tab;
-      const tabContent = document.getElementById(tabId);
-      if (tabContent) {
-        tabContent.classList.add('active');
-      }
+      document.getElementById(tabName)?.classList.add('active');
     });
   });
 }
 
-// ========== SINCRONIZACIÓN OFFLINE/ONLINE ==========
+// ========== LOGOUT ==========
 
-// Detectar cuando vuelve la conexión y sincronizar
-window.addEventListener('online', async () => {
-  console.log('Conexión restaurada, sincronizando datos...');
+function initLogout() {
+  const logoutBtn = document.getElementById('logout-btn');
+  
+  if (!logoutBtn) return;
+
+  logoutBtn.addEventListener('click', () => {
+    window.notificationSystem?.confirm(
+      '¿Deseas cerrar sesión?',
+      async () => {
+        try {
+          window.loadingSystem?.show('Cerrando sesión...');
+          
+          // Cerrar sesión Firebase
+          try {
+            await window.firebaseAuth.signOut();
+          } catch (error) {
+            console.warn('Firebase logout:', error);
+          }
+          
+          // Limpiar sesión local
+          window.SessionManager?.clearSession();
+          
+          window.loadingSystem?.hide();
+          window.notificationSystem?.success('Sesión cerrada');
+          
+          setTimeout(() => {
+            window.location.href = 'index.html';
+          }, 500);
+        } catch (error) {
+          window.loadingSystem?.hide();
+          window.notificationSystem?.error('Error al cerrar sesión');
+        }
+      }
+    );
+  });
+}
+
+// ========== FAB (Floating Action Button) ==========
+
+function initFab() {
+  const mainFab = document.getElementById('main-fab');
+  const modal = document.getElementById('modal');
+  const closeModal = document.getElementById('close-modal');
+  const modalOptions = document.querySelectorAll('.modal-option');
+
+  if (!mainFab) {
+    console.warn('FAB no encontrado en el DOM');
+    return;
+  }
+
+  // ✅ Asegurar z-index alto (más que Google Maps)
+  mainFab.style.zIndex = '9999';
+  
+  // ✅ Abrir modal al hacer click en FAB
+  mainFab.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (modal) {
+      modal.classList.add('active');
+      modal.style.zIndex = '10000';
+    }
+  });
+
+  // Cerrar modal
+  closeModal?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modal?.classList.remove('active');
+  });
+
+  // Cerrar modal al hacer click fuera (en el overlay)
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.classList.remove('active');
+    }
+  });
+
+  // Seleccionar opción del modal
+  modalOptions.forEach(option => {
+    option.addEventListener('click', () => {
+      const tipo = option.getAttribute('data-tipo');
+      window.location.href = `formulario.html?tipo=${encodeURIComponent(tipo)}`;
+    });
+  });
+}
+
+// ========== CARGAR TAREAS ==========
+
+async function cargarTareas(userEmail) {
   try {
-    const sessionData = await window.SessionPersistence.getSession();
-    if (sessionData && sessionData.userData) {
-      cargarTareasIniciadas(sessionData.userData.email);
-      cargarTareasCompletadas(sessionData.userData.email);
+    const user = window.firebaseAuth.currentUser;
+    
+    if (user) {
+      // Online: cargar desde Firebase
+      await cargarTareasFirebase(user.uid);
+    } else {
+      // Offline: mostrar mensaje
+      window.notificationSystem?.warning('Modo offline - datos pueden estar desactualizados');
     }
   } catch (error) {
-    console.error('Error al sincronizar en reconexión:', error);
+    console.error('Error al cargar tareas:', error);
+    window.notificationSystem?.error('Error al cargar tareas');
   }
-});
+}
 
-// Función para cargar tareas desde caché local
-async function cargarTareasDelCache(userEmail) {
+async function cargarTareasFirebase(userId) {
+  const iniciasContainer = document.getElementById('iniciados-container');
+  const completasContainer = document.getElementById('completados-container');
+
   try {
-    const iniciadas = await window.SessionPersistence?.getTasks(userEmail, 'iniciadas') || [];
-    const completadas = await window.SessionPersistence?.getTasks(userEmail, 'completadas') || [];
-    
-    const containerIniciadas = document.getElementById('iniciados-container');
-    const containerCompletadas = document.getElementById('completados-container');
-    
-    if (containerIniciadas) {
-      if (iniciadas.length === 0) {
-        containerIniciadas.innerHTML = '<p style="text-align: center; color: #a0a0cc; padding: 40px 0;">No hay tareas iniciadas (modo offline)</p>';
-      } else {
-        containerIniciadas.innerHTML = '';
-        iniciadas.forEach((tarea) => {
-          containerIniciadas.appendChild(crearElementoTarea(tarea));
-        });
-      }
+    window.loadingSystem?.show('Cargando tareas...');
+
+    // Tareas iniciadas
+    const iniciadas = await window.firebaseDB
+      .collection('tareas')
+      .where('userId', '==', userId)
+      .where('estado', '==', 'iniciada')
+      .get();
+
+    // Tareas completadas
+    const completadas = await window.firebaseDB
+      .collection('tareas')
+      .where('userId', '==', userId)
+      .where('estado', '==', 'completada')
+      .get();
+
+    // Mostrar tareas iniciadas
+    if (iniciadas.empty) {
+      iniciasContainer.innerHTML = '<p style="text-align:center; color:#a0a0cc; padding:20px;">No hay tareas iniciadas</p>';
+    } else {
+      iniciasContainer.innerHTML = '';
+      iniciadas.forEach(doc => {
+        const tarea = doc.data();
+        iniciasContainer.appendChild(crearTarjetaTarea(tarea, doc.id));
+      });
     }
-    
-    if (containerCompletadas) {
-      if (completadas.length === 0) {
-        containerCompletadas.innerHTML = '<p style="text-align: center; color: #a0a0cc; padding: 40px 0;">No hay tareas completadas (modo offline)</p>';
-      } else {
-        containerCompletadas.innerHTML = '';
-        completadas.forEach((tarea) => {
-          containerCompletadas.appendChild(crearElementoTareaCompletada(tarea));
-        });
-      }
+
+    // Mostrar tareas completadas
+    if (completadas.empty) {
+      completasContainer.innerHTML = '<p style="text-align:center; color:#a0a0cc; padding:20px;">No hay tareas completadas</p>';
+    } else {
+      completasContainer.innerHTML = '';
+      completadas.forEach(doc => {
+        const tarea = doc.data();
+        completasContainer.appendChild(crearTarjetaTarea(tarea, doc.id));
+      });
     }
+
+    window.loadingSystem?.hide();
   } catch (error) {
-    console.error('Error al cargar tareas del caché:', error);
-    // Fallback a localStorage si IndexedDB falla
-    try {
-      const iniciadas = Helpers.getStorage('tareasIniciadas') || [];
-      const completadas = Helpers.getStorage('tareasCompletadas') || [];
-      
-      const containerIniciadas = document.getElementById('iniciados-container');
-      const containerCompletadas = document.getElementById('completados-container');
-      
-      if (containerIniciadas) {
-        if (iniciadas.length === 0) {
-          containerIniciadas.innerHTML = '<p style="text-align: center; color: #a0a0cc; padding: 40px 0;">No hay tareas iniciadas (modo offline)</p>';
-        } else {
-          containerIniciadas.innerHTML = '';
-          iniciadas.forEach((tarea) => {
-            containerIniciadas.appendChild(crearElementoTarea(tarea));
-          });
-        }
-      }
-      
-      if (containerCompletadas) {
-        if (completadas.length === 0) {
-          containerCompletadas.innerHTML = '<p style="text-align: center; color: #a0a0cc; padding: 40px 0;">No hay tareas completadas (modo offline)</p>';
-        } else {
-          containerCompletadas.innerHTML = '';
-          completadas.forEach((tarea) => {
-            containerCompletadas.appendChild(crearElementoTareaCompletada(tarea));
-          });
-        }
-      }
-    } catch (fallbackError) {
-      console.error('Error al cargar tareas del localStorage:', fallbackError);
-      window.notificationSystem?.error('No se pudieron cargar las tareas');
-    }
+    window.loadingSystem?.hide();
+    console.error('Error al cargar tareas de Firebase:', error);
+    window.notificationSystem?.error('Error al cargar tareas');
   }
 }
 
-// ========== TAREAS ==========
-
-function cargarTareasIniciadas(userEmail) {
-  const container = document.getElementById('iniciados-container');
-  if (!container) return;
-
-  container.innerHTML = '<p style="text-align: center; color: #a0a0cc;">Cargando tareas...</p>';
-
-  window.firebaseDB.collection('tareas')
-    .where('userEmail', '==', userEmail)
-    .where('estado', '==', 'pendiente')
-    .get()
-    .then(async (snapshot) => {
-      if (snapshot.empty) {
-        container.innerHTML = '<p style="text-align: center; color: #a0a0cc; padding: 40px 0;">No hay tareas iniciadas</p>';
-        await window.SessionPersistence.saveTasks(userEmail, 'iniciadas', []);
-        Helpers.setStorage('tareasIniciadas', []);
-        return;
-      }
-
-      const tareas = [];
-      container.innerHTML = '';
-      snapshot.forEach((doc) => {
-        const tarea = { id: doc.id, ...doc.data() };
-        tareas.push(tarea);
-        container.appendChild(crearElementoTarea(tarea));
-      });
-      
-      // Guardar tareas en SessionPersistence para acceso offline
-      await window.SessionPersistence.saveTasks(userEmail, 'iniciadas', tareas);
-      Helpers.setStorage('tareasIniciadas', tareas);
-    })
-    .catch((error) => {
-      window.notificationSystem.error('Error al cargar tareas: ' + error.message);
-      console.error(error);
-    });
-}
-
-function cargarTareasCompletadas(userEmail) {
-  const container = document.getElementById('completados-container');
-  if (!container) return;
-
-  container.innerHTML = '<p style="text-align: center; color: #a0a0cc;">Cargando tareas...</p>';
-
-  window.firebaseDB.collection('tareas')
-    .where('userEmail', '==', userEmail)
-    .where('estado', '==', 'completado')
-    .get()
-    .then(async (snapshot) => {
-      if (snapshot.empty) {
-        container.innerHTML = '<p style="text-align: center; color: #a0a0cc; padding: 40px 0;">No hay tareas completadas</p>';
-        await window.SessionPersistence.saveTasks(userEmail, 'completadas', []);
-        Helpers.setStorage('tareasCompletadas', []);
-        return;
-      }
-
-      const tareas = [];
-      container.innerHTML = '';
-      snapshot.forEach((doc) => {
-        const tarea = { id: doc.id, ...doc.data() };
-        tareas.push(tarea);
-        container.appendChild(crearElementoTareaCompletada(tarea));
-      });
-      
-      // Guardar tareas en SessionPersistence para acceso offline
-      await window.SessionPersistence.saveTasks(userEmail, 'completadas', tareas);
-      Helpers.setStorage('tareasCompletadas', tareas);
-    })
-    .catch((error) => {
-      window.notificationSystem.error('Error al cargar tareas: ' + error.message);
-      console.error(error);
-    });
-}
-
-function crearElementoTarea(tarea) {
-  const div = document.createElement('div');
-  div.classList.add('tarea-card');
-
-  div.innerHTML = `
-    <div class="tarea-info">
-      <h4>${tarea.clienteId}</h4>
-      <p><strong>Tipo:</strong> ${tarea.tipoTarea}</p>
-      <p><strong>Ubicación:</strong> ${tarea.distrito}</p>
-      <p><strong>Fecha:</strong> ${tarea.fecha}</p>
+function crearTarjetaTarea(tarea, id) {
+  const card = document.createElement('div');
+  card.className = 'tarea-card';
+  card.innerHTML = `
+    <div class="tarea-header">
+      <h3>${tarea.descripcion || 'Sin descripción'}</h3>
+      <span class="tarea-estado">${tarea.estado}</span>
     </div>
-    <div class="tarea-actions">
-      <button class="btn-lupa" title="Ver detalles">📋</button>
+    <div class="tarea-body">
+      <p><strong>Cliente:</strong> ${tarea.cliente || '-'}</p>
+      <p><strong>Unidad:</strong> ${tarea.unidad || '-'}</p>
+      ${tarea.distancia ? `<p><strong>Distancia:</strong> ${Math.round(tarea.distancia)}m</p>` : ''}
+      <p><strong>Fecha:</strong> ${tarea.fechaCreacion ? Helpers.formatDate(new Date(tarea.fechaCreacion.toDate())) : '-'}</p>
     </div>
   `;
-
-  div.querySelector('.btn-lupa').addEventListener('click', () => {
-    verDetallesTarea(tarea);
-  });
-
-  return div;
+  return card;
 }
 
-function crearElementoTareaCompletada(tarea) {
-  const div = document.createElement('div');
-  div.classList.add('tarea-card');
+// ========== MONITOREO DE CONEXIÓN ==========
 
-  div.innerHTML = `
-    <div class="tarea-info">
-      <h4>${tarea.clienteId}</h4>
-      <p><strong>Tipo:</strong> ${tarea.tipoTarea}</p>
-      <p><strong>Ubicación:</strong> ${tarea.distrito}</p>
-      <p><strong>Completada:</strong> ${tarea.fecha}</p>
-    </div>
-    <div class="tarea-actions">
-      <button class="btn-lupa" title="Ver detalles">✓</button>
-    </div>
-  `;
-
-  div.querySelector('.btn-lupa').addEventListener('click', () => {
-    verDetallesTarea(tarea);
-  });
-
-  return div;
-}
-
-function verDetallesTarea(tarea) {
-  const mensaje = `
-    <strong>Cliente:</strong> ${tarea.clienteId}
-    <strong>Unidad:</strong> ${tarea.unidadId}
-    <strong>Tipo:</strong> ${tarea.tipoTarea}
-    <strong>Dirección:</strong> ${tarea.direccion}
-    <strong>Distrito:</strong> ${tarea.distrito}
-    <strong>Fecha:</strong> ${tarea.fecha}
-  `;
-  window.notificationSystem.info(mensaje, 'info', 5000);
-}
-
-// ========== FAB & MODAL ==========
-
-function initFabModal() {
-  if (!mainFab || !modal || !closeModal || !overlay) return;
-
-  mainFab.addEventListener('click', () => {
-    modal.classList.toggle('show');
-    overlay.classList.toggle('active');
-  });
-
-  closeModal.addEventListener('click', () => {
-    modal.classList.remove('show');
-    overlay.classList.remove('active');
-  });
-
-  overlay.addEventListener('click', () => {
-    modal.classList.remove('show');
-    overlay.classList.remove('active');
-    if (sideMenu) {
-      sideMenu.classList.remove('active');
+function monitorearConexion() {
+  Helpers.onConnectionChange((isOnline) => {
+    if (isOnline) {
+      window.notificationSystem?.success('Conexión restaurada', 'success', 3000);
+    } else {
+      window.notificationSystem?.warning('Sin conexión - modo offline', 'warning', 0);
     }
   });
-
-  modalOptions.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const tipoTarea = btn.dataset.tipo;
-      if (tipoTarea) {
-        Helpers.setStorage('tipoDeTarea', tipoTarea);
-        window.loadingSystem?.show('Redirigiendo a formulario...');
-        setTimeout(() => {
-          window.location.href = 'formulario.html';
-        }, 800);
-      }
-    });
-  });
 }
 
-// ========== RECARGAR DATOS ==========
+// ========== UTILIDADES ==========
 
-function initReloadButton() {
-  const reloadBtn = document.querySelector('[title="Recargar información"]');
-  if (reloadBtn) {
-    reloadBtn.addEventListener('click', () => {
-      window.loadingSystem?.show('Recargando datos...');
-      const user = window.firebaseAuth?.currentUser;
-      if (user) {
-        cargarTareasIniciadas(user.email);
-        cargarTareasCompletadas(user.email);
-      }
-      setTimeout(() => {
-        window.loadingSystem?.hide();
-        window.notificationSystem?.success('Datos recargados');
-      }, 1000);
-    });
-  }
-}
-
-// ========== INICIALIZACIÓN GENERAL ==========
-
-async function initializeApp() {
-  try {
-    // Esperar a que los módulos necesarios estén disponibles
-    let attempts = 0;
-    while (!window.SessionPersistence && attempts < 50) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      attempts++;
-    }
-
-    // Inicializar componentes
-    initAuthState();
-    initSideMenu();
-    initLogout();
-    initTabs();
-    initFabModal();
-    initConnectivityMonitoring();
-    initReloadButton();
-
-    // Esperar a que Firebase esté listo
-    if (window.firebaseAuth) {
-      window.firebaseAuth.onAuthStateChanged((user) => {
-        if (user) {
-          loadUserData(user.email);
-        }
-      });
-    }
-  } catch (error) {
-    console.error('Error durante la inicialización:', error);
-    window.notificationSystem?.error('Error al inicializar la aplicación');
-  }
-}
-
-// ========== DOMContentLoaded ==========
-
-document.addEventListener('DOMContentLoaded', initializeApp);
-
-// ========== MONITOR DE CONEXIÓN ==========
-
-function initConnectivityMonitoring() {
-  if (typeof Helpers !== 'undefined' && typeof Helpers.onConnectionChange === 'function') {
-    Helpers.onConnectionChange((isOnline) => {
-      if (isOnline) {
-        window.notificationSystem?.success('Conexión restaurada', 'success', 3000);
-        // Sincronizar cola de tareas pendientes
-        if (window.offlineQueue?.syncQueue) {
-          window.offlineQueue.syncQueue();
-        }
-      } else {
-        window.notificationSystem?.warning('Sin conexión a internet', 'warning', 0);
-      }
-    });
-  }
+function createOverlay() {
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  document.body.appendChild(overlay);
+  return overlay;
 }
 
 // ========== INICIALIZACIÓN DE GOOGLE MAPS ==========
 
-/**
- * Inicializa Google Maps cuando la API se carga
- * Esta función es llamada por el callback de Google Maps
- */
 function initMap() {
   const mapContainer = document.getElementById('map');
   
@@ -500,136 +336,110 @@ function initMap() {
     return;
   }
 
-  // Ubicación por defecto (Lima, Perú)
-  const defaultLocation = {
-    lat: -12.0464,
-    lng: -77.0428
-  };
+  // Mostrar overlay de carga mientras obtiene GPS
+  const gpsOverlay = document.createElement('div');
+  gpsOverlay.style.cssText = `
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(5, 8, 18, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    z-index: 10;
+    color: #00d4ff;
+    font-weight: bold;
+  `;
+  gpsOverlay.innerHTML = '📍 Buscando ubicación...';
+  mapContainer.style.position = 'relative';
+  mapContainer.appendChild(gpsOverlay);
 
-  // Crear el mapa
+  // Ubicación por defecto (Lima)
+  const defaultLocation = { lat: -12.0464, lng: -77.0428 };
+
+  // Crear mapa
   const map = new google.maps.Map(mapContainer, {
     zoom: 15,
     center: defaultLocation,
     mapTypeControl: false,
     fullscreenControl: true,
     styles: [
-      {
-        elementType: 'geometry',
-        stylers: [{ color: '#050812' }]
-      },
-      {
-        elementType: 'labels.text.stroke',
-        stylers: [{ color: '#050812' }]
-      },
-      {
-        elementType: 'labels.text.fill',
-        stylers: [{ color: '#00d4ff' }]
-      },
-      {
-        featureType: 'administrative.locality',
-        elementType: 'labels.text.fill',
-        stylers: [{ color: '#00ffff' }]
-      },
-      {
-        featureType: 'poi',
-        elementType: 'labels.text.fill',
-        stylers: [{ color: '#ff0055' }]
-      },
-      {
-        featureType: 'road',
-        elementType: 'geometry',
-        stylers: [{ color: '#1a1f3e' }]
-      },
-      {
-        featureType: 'road',
-        elementType: 'geometry.stroke',
-        stylers: [{ color: '#00d4ff' }]
-      },
-      {
-        featureType: 'road.highway',
-        elementType: 'geometry.stroke',
-        stylers: [{ color: '#00ffff' }]
-      },
-      {
-        featureType: 'transit',
-        elementType: 'geometry',
-        stylers: [{ color: '#0a0e27' }]
-      },
-      {
-        featureType: 'water',
-        elementType: 'geometry',
-        stylers: [{ color: '#0a1929' }]
-      }
+      { elementType: 'geometry', stylers: [{ color: '#050812' }] },
+      { elementType: 'labels.text.fill', stylers: [{ color: '#00d4ff' }] },
+      { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1a1f3e' }] },
+      { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0a1929' }] }
     ]
   });
 
-  // Agregar marcador de ubicación por defecto
-  const defaultMarker = new google.maps.Marker({
+  // Agregar marcador por defecto
+  new google.maps.Marker({
     position: defaultLocation,
     map: map,
     title: 'Ubicación por defecto (Lima)',
-    icon: {
-      path: google.maps.SymbolPath.CIRCLE,
-      scale: 8,
-      fillColor: '#00d4ff',
-      fillOpacity: 0.8,
-      strokeColor: '#00ffff',
-      strokeWeight: 2
-    }
+    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#00d4ff', fillOpacity: 0.8, strokeColor: '#00ffff', strokeWeight: 2 }
   });
 
-  // Obtener ubicación actual del usuario
+  // Obtener ubicación del usuario (con timeout de 10 segundos)
   if (navigator.geolocation) {
+    const timeoutId = setTimeout(() => {
+      // Si tarda más de 10 segundos, usar ubicación por defecto
+      gpsOverlay.remove();
+      window.notificationSystem?.warning('GPS no disponible, usando ubicación por defecto');
+    }, 10000);
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        clearTimeout(timeoutId);
+        
         const userLocation = {
           lat: position.coords.latitude,
           lng: position.coords.longitude
         };
 
-        // Centrar en la ubicación actual
+        // Centrar en ubicación real
         map.setCenter(userLocation);
 
         // Agregar marcador de usuario
-        const userMarker = new google.maps.Marker({
+        new google.maps.Marker({
           position: userLocation,
           map: map,
           title: 'Mi ubicación',
-          icon: {
-            path: google.maps.SymbolPath.CIRCLE,
-            scale: 10,
-            fillColor: '#ff0055',
-            fillOpacity: 0.9,
-            strokeColor: '#ff88cc',
-            strokeWeight: 3
-          }
+          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#ff0055', fillOpacity: 0.9, strokeColor: '#ff88cc', strokeWeight: 3 }
         });
+
+        // Remover overlay
+        gpsOverlay.remove();
       },
       (error) => {
-        console.warn('Geolocalización no disponible:', error);
-        window.notificationSystem?.warning('No se pudo obtener tu ubicación');
+        clearTimeout(timeoutId);
+        console.warn('Error de geolocalización:', error);
+        gpsOverlay.remove();
+        window.notificationSystem?.warning('No se pudo obtener ubicación');
       }
     );
+  } else {
+    gpsOverlay.remove();
   }
 
-  // Guardar el mapa en window para usarlo en otras funciones
   window.currentMap = map;
 }
 
-// Esperar a que Google Maps se cargue correctamente
-function ensureMapInitialized() {
-  if (typeof google !== 'undefined' && google.maps) {
-    initMap();
-  } else {
-    console.warn('Google Maps API no disponible, reintentando...');
-    setTimeout(ensureMapInitialized, 500);
-  }
-}
-
+// Inicializar mapa cuando Google Maps esté listo
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(ensureMapInitialized, 100);
+    setTimeout(() => {
+      if (typeof google !== 'undefined' && google.maps) {
+        initMap();
+      }
+    }, 500);
   });
 } else {
-  setTimeout(ensureMapInitialized, 100);
+  setTimeout(() => {
+    if (typeof google !== 'undefined' && google.maps) {
+      initMap();
+    }
+  }, 500);
 }

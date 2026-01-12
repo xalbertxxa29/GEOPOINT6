@@ -54,6 +54,7 @@ loginForm.addEventListener('submit', async (e) => {
 
   const email = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value.trim();
+  const isOnline = navigator.onLine;
 
   // Validación básica
   if (!email || !password) {
@@ -72,46 +73,71 @@ loginForm.addEventListener('submit', async (e) => {
   }
 
   // Mostrar loader
-  window.loadingSystem.show('Iniciando sesión...');
+  window.loadingSystem.show(isOnline ? 'Iniciando sesión...' : 'Iniciando sesión (Offline)...');
   loginBtn.disabled = true;
 
   try {
-    // Intentar autenticación
-    const userCredential = await window.firebaseAuth.signInWithEmailAndPassword(email, password);
-    const user = userCredential.user;
+    if (isOnline) {
+      // LOGIN ONLINE - Autenticar con Firebase
+      const userCredential = await window.firebaseAuth.signInWithEmailAndPassword(email, password);
+      const user = userCredential.user;
 
-    // Guardar información del usuario en SessionPersistence
-    const sessionData = {
-      userData: {
+      // Guardar sesión y credenciales
+      window.SessionManager.saveSession({
         uid: user.uid,
         email: user.email,
-        displayName: user.displayName || 'Usuario',
-        lastLogin: new Date().toISOString()
-      },
-      sessionToken: user.uid
-    };
-    
-    await window.SessionPersistence.saveSession(sessionData);
+        displayName: user.displayName || 'Usuario'
+      });
+      
+      // Guardar credenciales para offline
+      window.SessionManager.saveCredentials(email, password);
 
-    window.notificationSystem.success(`¡Bienvenido ${user.displayName || 'Usuario'}!`);
+      window.notificationSystem.success(`¡Bienvenido ${user.displayName || 'Usuario'}!`);
 
-    // Redireccionar después de 1.5 segundos
-    setTimeout(() => {
-      window.location.href = 'menu.html';
-    }, 1500);
+      // Redireccionar después de 1.5 segundos
+      setTimeout(() => {
+        window.location.href = 'menu.html';
+      }, 1500);
+
+    } else {
+      // LOGIN OFFLINE - Verificar credenciales guardadas
+      if (window.SessionManager.verifyOfflineCredentials(email, password)) {
+        // Credenciales correctas (se verifican contra lo guardado localmente)
+        const userData = window.SessionManager.getUserData();
+        
+        if (userData && userData.email === email) {
+          window.notificationSystem.success(`¡Bienvenido ${userData.displayName || 'Usuario'}! (Modo Offline)`);
+
+          // Redireccionar después de 1.5 segundos
+          setTimeout(() => {
+            window.location.href = 'menu.html';
+          }, 1500);
+        } else {
+          // No hay datos guardados para este usuario
+          window.loadingSystem.hide();
+          loginBtn.disabled = false;
+          window.notificationSystem.error('Este usuario no fue autenticado anteriormente. Requiere conexión a internet.');
+        }
+      } else {
+        // Credenciales incorrectas en modo offline
+        window.loadingSystem.hide();
+        loginBtn.disabled = false;
+        window.notificationSystem.error('Credenciales inválidas o usuario no autenticado en este dispositivo.');
+      }
+    }
 
   } catch (error) {
     window.loadingSystem.hide();
     loginBtn.disabled = false;
 
-    // Manejar errores específicos
+    // Manejar errores específicos de Firebase
     const errorMessages = {
       'auth/user-not-found': 'Usuario no encontrado. Verifica tu correo electrónico.',
       'auth/wrong-password': 'Contraseña incorrecta. Intenta nuevamente.',
       'auth/too-many-requests': 'Demasiados intentos fallidos. Intenta más tarde.',
       'auth/invalid-email': 'Correo electrónico inválido.',
       'auth/user-disabled': 'Esta cuenta ha sido deshabilitada.',
-      'auth/network-request-failed': 'Error de conexión. Verifica tu internet.',
+      'auth/network-request-failed': 'Error de conexión. Si los datos fueron guardados anteriormente, inténtalo sin internet.',
       'auth/invalid-credential': 'Credenciales inválidas. Intenta nuevamente.'
     };
 
@@ -151,21 +177,15 @@ if ('serviceWorker' in navigator) {
 }
 
 // Verificar si ya hay usuario autenticado o sesión persistente
-window.firebaseAuth.onAuthStateChanged(async (user) => {
+window.firebaseAuth.onAuthStateChanged((user) => {
   if (user && window.location.pathname.includes('index.html')) {
-    // Si hay usuario autenticado y estamos en login, redirigir a menu
+    // Si hay usuario autenticado en Firebase y estamos en login, redirigir a menu
+    console.log('✅ Usuario autenticado en Firebase, redirigiendo a menu');
     window.location.href = 'menu.html';
-  } else if (!user) {
-    // Si no hay usuario autenticado, verificar si hay sesión en SessionPersistence
-    try {
-      const sessionData = await window.SessionPersistence.getSession();
-      if (sessionData && sessionData.userData && window.location.pathname.includes('index.html')) {
-        // Hay sesión guardada, redirigir a menu (sesión persistente)
-        window.location.href = 'menu.html';
-      }
-    } catch (error) {
-      console.warn('Error al verificar sesión persistente:', error);
-    }
+  } else if (!user && window.SessionManager.isSessionActive() && window.location.pathname.includes('index.html')) {
+    // Si no hay usuario en Firebase pero hay sesión local activa (modo offline)
+    console.log('✅ Sesión local activa (offline), redirigiendo a menu');
+    window.location.href = 'menu.html';
   }
 });
 

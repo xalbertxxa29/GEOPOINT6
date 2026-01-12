@@ -38,10 +38,26 @@ window.firebaseAuth.onAuthStateChanged((user) => {
 
 async function inicializar() {
   try {
+    console.log('🔄 Iniciando formulario...');
+    console.log(`🌐 Estado de conexión: ${navigator.onLine ? '✅ ONLINE' : '❌ OFFLINE'}`);
+    
+    // Esperar a que la autenticación esté lista
+    const user = window.firebaseAuth.currentUser;
+    if (!user) {
+      console.warn('⏳ Usuario no autenticado, esperando...');
+      // Esperar un poco para que la autenticación se establezca
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    console.log(`👤 Usuario autenticado: ${user?.email || 'No disponible'}`);
+    
     cargarTipoDeTarea();
     initUbicacionesMapa();
-    populateDropdowns();
+    console.log('📋 Llamando a populateDropdowns...');
+    await populateDropdowns(); // Esperar a que se carguen los clientes
+    console.log('✅ Formulario inicializado correctamente');
   } catch (error) {
+    console.error('❌ Error al inicializar:', error);
     window.notificationSystem.error('Error al inicializar: ' + error.message);
   }
 }
@@ -75,6 +91,18 @@ logoutBtn.addEventListener('click', async () => {
       }
     }
   );
+});
+
+// ========== MONITOR DE CONEXIÓN ==========
+
+window.addEventListener('online', () => {
+  console.log('✅ CONEXIÓN RESTAURADA');
+  window.notificationSystem.success('Conexión restaurada. Ya puedes cargar clientes.');
+});
+
+window.addEventListener('offline', () => {
+  console.log('❌ PERDISTE CONEXIÓN A INTERNET');
+  window.notificationSystem.warning('Sin conexión a internet. No puedes descargar datos nuevos.', 'warning', 0);
 });
 
 // ========== GEOLOCALIZACIÓN ==========
@@ -210,47 +238,94 @@ async function populateDropdowns() {
   const clienteDropdown = document.getElementById('buscarCliente');
   const unidadDropdown = document.getElementById('buscarUnidad');
 
+  if (!navigator.onLine) {
+    window.notificationSystem.warning('Sin conexión a internet');
+    return;
+  }
+
   try {
     window.loadingSystem.show('Cargando clientes...');
+    
+    // Obtenemos el snapshot para depurar mejor
+    console.log('🔍 Consultando colección CLIENTES...');
+    const snapshot = await window.firebaseDB.collection('CLIENTES').get();
 
-    const clientesSnapshot = await window.firebaseDB.collection('clientes').get();
-
+    console.log(`📊 Total documentos encontrados: ${snapshot.size}`);
+    console.log('Revisando documentos encontrados...');
+    
     clienteDropdown.innerHTML = '<option value="">Seleccionar Cliente</option>';
     unidadDropdown.innerHTML = '<option value="">Seleccionar Unidad</option>';
+    unidadDropdown.disabled = true;
 
-    clientesSnapshot.forEach((doc) => {
-      const option = document.createElement('option');
-      option.value = doc.id;
-      option.textContent = doc.id;
-      clienteDropdown.appendChild(option);
+    if (snapshot.empty) {
+      console.error('❌ La colección está vacía. Verifica que los IDs de clientes NO estén en cursiva en Firebase Console.');
+      console.warn('💡 Si los documentos aparecen en cursiva, es porque son "virtuales" (solo tienen subcolecciones)');
+      console.warn('💡 Solución: Crea un documento físico con al menos un campo (ejemplo: existe: true)');
+      window.notificationSystem.warning('No se encontraron clientes físicos. Verifica Firebase Console.');
+      return;
+    }
+
+    let clientesValidos = 0;
+    snapshot.forEach((doc) => {
+      console.log(`✅ ID encontrado: ${doc.id}`, doc.data());
+      const opt = document.createElement('option');
+      opt.value = doc.id;
+      opt.textContent = doc.id;
+      clienteDropdown.appendChild(opt);
+      clientesValidos++;
     });
 
+    console.log(`✨ Total de clientes válidos cargados: ${clientesValidos}`);
+
+    // Evento para cargar unidades
     clienteDropdown.addEventListener('change', async () => {
       const selectedClienteId = clienteDropdown.value;
+      console.log(`👤 Cliente seleccionado: ${selectedClienteId}`);
       unidadDropdown.innerHTML = '<option value="">Seleccionar Unidad</option>';
 
       if (selectedClienteId) {
         try {
+          window.loadingSystem.show('Cargando unidades...');
+          console.log(`🔍 Consultando unidades para: CLIENTES/${selectedClienteId}/UNIDADES`);
+          
           const unidadesSnapshot = await window.firebaseDB
-            .collection(`clientes/${selectedClienteId}/unidades`)
+            .collection(`CLIENTES/${selectedClienteId}/UNIDADES`)
             .get();
 
+          console.log(`📊 Unidades encontradas: ${unidadesSnapshot.size}`);
+
+          if (unidadesSnapshot.empty) {
+            console.warn(`⚠️ El cliente ${selectedClienteId} no tiene unidades`);
+            window.notificationSystem.warning('Este cliente no tiene unidades');
+            return;
+          }
+
           unidadesSnapshot.forEach((unidadDoc) => {
-            const option = document.createElement('option');
-            option.value = unidadDoc.id;
-            option.textContent = unidadDoc.id;
-            unidadDropdown.appendChild(option);
+            console.log(`✅ Unidad encontrada: ${unidadDoc.id}`);
+            const opt = document.createElement('option');
+            opt.value = unidadDoc.id;
+            opt.textContent = unidadDoc.id;
+            unidadDropdown.appendChild(opt);
           });
+
+          unidadDropdown.disabled = false;
+          console.log('✨ Dropdown de unidades habilitado');
         } catch (error) {
-          window.notificationSystem.error('Error al cargar unidades: ' + error.message);
+          console.error('❌ Error de Firestore al cargar unidades:', error);
+          window.notificationSystem.error('Error: ' + error.code);
+        } finally {
+          window.loadingSystem.hide();
         }
+      } else {
+        unidadDropdown.disabled = true;
       }
     });
 
-    window.loadingSystem.hide();
   } catch (error) {
+    console.error('❌ Error de Firestore:', error);
+    window.notificationSystem.error('Error: ' + error.code);
+  } finally {
     window.loadingSystem.hide();
-    window.notificationSystem.error('Error al cargar clientes: ' + error.message);
   }
 }
 
@@ -258,21 +333,34 @@ document.getElementById('buscarUnidad').addEventListener('change', async () => {
   const clienteId = document.getElementById('buscarCliente').value;
   const unidadId = document.getElementById('buscarUnidad').value;
 
+  console.log(`📍 Unidad seleccionada - Cliente: ${clienteId}, Unidad: ${unidadId}`);
+
   if (clienteId && unidadId) {
     try {
-      const unidadDoc = await db.doc(`clientes/${clienteId}/unidades/${unidadId}`).get();
+      window.loadingSystem.show('Cargando datos de la unidad...');
+      console.log(`🔍 Obteniendo datos: CLIENTES/${clienteId}/UNIDADES/${unidadId}`);
+      
+      const unidadDoc = await window.firebaseDB.doc(`CLIENTES/${clienteId}/UNIDADES/${unidadId}`).get();
+      
       if (unidadDoc.exists) {
         const unidadData = unidadDoc.data();
-        document.getElementById('dniRuc').value = unidadData.ruc || '';
-        document.getElementById('departamento').value = unidadData.departamento || '';
-        document.getElementById('distrito').value = unidadData.distrito || '';
-        document.getElementById('direccion').value = unidadData.direccion || '';
+        console.log('📊 Datos de unidad obtenidos:', unidadData);
+        
         document.getElementById('latitud').value = unidadData.latitud || '';
         document.getElementById('longitud').value = unidadData.longitud || '';
 
+        console.log(`📍 Coordenadas: ${unidadData.latitud}, ${unidadData.longitud}`);
         actualizarClienteMapa(unidadData.latitud, unidadData.longitud);
+        window.loadingSystem.hide();
+        console.log('✅ Datos de unidad cargados correctamente');
+      } else {
+        window.loadingSystem.hide();
+        console.warn('⚠️ El documento de la unidad no existe');
+        window.notificationSystem.error('No se encontraron datos de la unidad');
       }
     } catch (error) {
+      window.loadingSystem.hide();
+      console.error('❌ Error al cargar datos de unidad:', error);
       window.notificationSystem.error('Error: ' + error.message);
     }
   }
@@ -335,10 +423,6 @@ enviarBtn.addEventListener('click', async () => {
     const tarea = {
       clienteId,
       unidadId,
-      dniRuc: document.getElementById('dniRuc').value,
-      departamento: document.getElementById('departamento').value,
-      distrito: document.getElementById('distrito').value,
-      direccion: document.getElementById('direccion').value,
       userId: user.uid,
       userEmail: user.email,
       tipoTarea,
